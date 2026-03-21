@@ -229,23 +229,28 @@ class SharkAuth:
                 context = await browser.new_context(**context_kwargs)
                 page = await context.new_page()
 
-                # Intercept the custom-scheme redirect
-                async def _intercept_redirect(route: Any) -> None:
-                    url = route.request.url
-                    if url.startswith(AUTH0_CUSTOM_SCHEME):
-                        parsed = urllib.parse.urlparse(url)
-                        params = urllib.parse.parse_qs(parsed.query)
-                        if "code" in params:
-                            if not auth_code_future.done():
-                                auth_code_future.set_result(params["code"][0])
-                        await route.abort()
-                    else:
-                        await route.continue_()
+                # Use CDP (Chrome DevTools Protocol) to intercept the auth code.
+                # Auth0's /authorize/resume returns a 302 to the custom scheme
+                # com.sharkninja.shark://...?code=...&state=...
+                # Chromium can't navigate to custom schemes, so Playwright's
+                # route/response handlers don't catch it. CDP's
+                # Network.requestWillBeSent with redirectResponse does.
+                cdp = await context.new_cdp_session(page)
 
-                await context.route("**/*", _intercept_redirect)
+                def _on_cdp_request(params: dict) -> None:
+                    url = params.get("request", {}).get("url", "")
+                    if url.startswith(AUTH0_CUSTOM_SCHEME):
+                        logger.info("Auth code captured via CDP redirect")
+                        parsed = urllib.parse.urlparse(url)
+                        qs = urllib.parse.parse_qs(parsed.query)
+                        if "code" in qs and not auth_code_future.done():
+                            auth_code_future.set_result(qs["code"][0])
+
+                cdp.on("Network.requestWillBeSent", _on_cdp_request)
+                await cdp.send("Network.enable")
 
                 # Navigate to Auth0 authorize
-                await page.goto(authorize_url, wait_until="networkidle")
+                await page.goto(authorize_url, wait_until="domcontentloaded")
 
                 auth_error: Exception | None = None
                 try:
@@ -290,13 +295,13 @@ class SharkAuth:
                     await password_input.wait_for(state="visible", timeout=30000)
                     await password_input.fill(self._config.shark_password)
 
-                    # Submit password
+                    # Submit password via Enter key (more reliable than button click)
                     logger.debug("Submitting password")
-                    submit_btn = page.locator(
-                        'button[type="submit"], button:has-text("Continue")'
-                    ).first
-                    await submit_btn.click()
+                    await password_input.press("Enter")
                     logger.debug("Password submitted, waiting for response")
+
+                    # Wait for page navigation after password submit
+                    await page.wait_for_timeout(3000)
 
                     # Handle passkey enrollment interstitial
                     try:
