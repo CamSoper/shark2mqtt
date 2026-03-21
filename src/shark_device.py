@@ -11,15 +11,15 @@ from .const import (
     POWER_MODE_NAMES,
     OperatingMode,
     PowerMode,
-    PROP_BATTERY_CAPACITY,
-    PROP_CHARGING_STATUS,
-    PROP_DEVICE_MODEL_NUMBER,
-    PROP_DOCKED_STATUS,
-    PROP_ERROR_CODE,
-    PROP_OPERATING_MODE,
-    PROP_POWER_MODE,
-    PROP_ROBOT_FIRMWARE_VERSION,
-    PROP_RSSI,
+    PROP_GET_BATTERY_CAPACITY,
+    PROP_GET_CHARGING_STATUS,
+    PROP_GET_DEVICE_MODEL_NUMBER,
+    PROP_GET_DOCKED_STATUS,
+    PROP_GET_ERROR_CODE,
+    PROP_GET_OPERATING_MODE,
+    PROP_GET_POWER_MODE,
+    PROP_GET_ROBOT_FIRMWARE_VERSION,
+    PROP_GET_RSSI,
 )
 
 logger = logging.getLogger(__name__)
@@ -64,7 +64,7 @@ class SharkVacuum:
 
     @property
     def operating_mode(self) -> OperatingMode | None:
-        val = self._get_int_prop(PROP_OPERATING_MODE, -1)
+        val = self._get_int_prop(PROP_GET_OPERATING_MODE, -1)
         try:
             return OperatingMode(val)
         except ValueError:
@@ -72,11 +72,11 @@ class SharkVacuum:
 
     @property
     def is_docked(self) -> bool:
-        return self._get_int_prop(PROP_DOCKED_STATUS) == 1
+        return self._get_int_prop(PROP_GET_DOCKED_STATUS) == 1
 
     @property
     def error_code(self) -> int:
-        return self._get_int_prop(PROP_ERROR_CODE)
+        return self._get_int_prop(PROP_GET_ERROR_CODE)
 
     @property
     def error_text(self) -> str:
@@ -92,22 +92,23 @@ class SharkVacuum:
         if mode is None:
             return "idle"
 
-        if mode == OperatingMode.STOP and self.is_docked:
+        # Docked + charging/idle takes priority over operating mode
+        if self.is_docked and mode in (OperatingMode.STOP, OperatingMode.RETURN):
             return "docked"
 
         return OPERATING_MODE_TO_HA_STATE.get(mode, "idle")
 
     @property
     def battery_level(self) -> int:
-        return self._get_int_prop(PROP_BATTERY_CAPACITY)
+        return self._get_int_prop(PROP_GET_BATTERY_CAPACITY)
 
     @property
     def is_charging(self) -> bool:
-        return self._get_int_prop(PROP_CHARGING_STATUS) == 1
+        return self._get_int_prop(PROP_GET_CHARGING_STATUS) == 1
 
     @property
     def power_mode(self) -> PowerMode | None:
-        val = self._get_int_prop(PROP_POWER_MODE, -1)
+        val = self._get_int_prop(PROP_GET_POWER_MODE, -1)
         try:
             return PowerMode(val)
         except ValueError:
@@ -122,15 +123,15 @@ class SharkVacuum:
 
     @property
     def rssi(self) -> int:
-        return self._get_int_prop(PROP_RSSI)
+        return self._get_int_prop(PROP_GET_RSSI)
 
     @property
     def firmware_version(self) -> str:
-        return str(self._get_prop(PROP_ROBOT_FIRMWARE_VERSION, ""))
+        return str(self._get_prop(PROP_GET_ROBOT_FIRMWARE_VERSION, ""))
 
     @property
     def model_number(self) -> str:
-        return str(self._get_prop(PROP_DEVICE_MODEL_NUMBER, self.model))
+        return str(self._get_prop(PROP_GET_DEVICE_MODEL_NUMBER, self.model))
 
     @property
     def is_online(self) -> bool:

@@ -11,9 +11,9 @@ import aiomqtt
 from .const import (
     HA_COMMAND_TO_MODE,
     POWER_MODE_BY_NAME,
-    PROP_FIND_DEVICE,
-    PROP_OPERATING_MODE,
-    PROP_POWER_MODE,
+    PROP_SET_FIND_DEVICE,
+    PROP_SET_OPERATING_MODE,
+    PROP_SET_POWER_MODE,
 )
 
 if TYPE_CHECKING:
@@ -218,12 +218,12 @@ class MqttClient:
         logger.info("Command received: %s for %s", command, dsn)
 
         if command == "locate":
-            await ayla.set_device_property(dsn, PROP_FIND_DEVICE, 1)
+            await ayla.set_device_property(dsn, PROP_SET_FIND_DEVICE, 1)
             return
 
         mode = HA_COMMAND_TO_MODE.get(command)
         if mode is not None:
-            await ayla.set_device_property(dsn, PROP_OPERATING_MODE, mode.value)
+            await ayla.set_device_property(dsn, PROP_SET_OPERATING_MODE, mode.value)
         else:
             logger.warning("Unknown command: %s", command)
 
@@ -234,7 +234,7 @@ class MqttClient:
 
         power_mode = POWER_MODE_BY_NAME.get(speed)
         if power_mode is not None:
-            await ayla.set_device_property(dsn, PROP_POWER_MODE, power_mode.value)
+            await ayla.set_device_property(dsn, PROP_SET_POWER_MODE, power_mode.value)
         else:
             logger.warning("Unknown fan speed: %s", speed)
 

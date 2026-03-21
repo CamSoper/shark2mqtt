@@ -355,64 +355,6 @@ class SharkAuth:
                 return matches[0]
         return None
 
-    # --- Xvfb helpers ---
-
-    @staticmethod
-    async def _start_xvfb() -> Any:
-        """Start Xvfb virtual display for headed browser mode.
-
-        Uses xvfb-run style: start Xvfb, wait for it, set DISPLAY.
-        """
-        import subprocess
-
-        # Find a free display number
-        display_num = 99
-        display = f":{display_num}"
-
-        # Clean up stale lock files
-        lock_file = f"/tmp/.X{display_num}-lock"
-        socket_file = f"/tmp/.X11-unix/X{display_num}"
-        for f in (lock_file, socket_file):
-            try:
-                os.unlink(f)
-            except OSError:
-                pass
-
-        try:
-            proc = subprocess.Popen(
-                ["Xvfb", display, "-screen", "0", "1280x1024x24",
-                 "-nolisten", "tcp", "-ac"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,
-            )
-            # Wait for Xvfb to be ready
-            for _ in range(20):
-                await asyncio.sleep(0.25)
-                if proc.poll() is not None:
-                    stderr = proc.stderr.read().decode() if proc.stderr else ""
-                    logger.warning("Xvfb exited: %s", stderr.strip())
-                    return None
-                if os.path.exists(socket_file) or os.path.exists(lock_file):
-                    break
-
-            os.environ["DISPLAY"] = display
-            logger.debug("Xvfb started on %s (pid %d)", display, proc.pid)
-            return proc
-        except FileNotFoundError:
-            logger.warning("Xvfb not found — falling back to headless mode")
-            return None
-
-    @staticmethod
-    def _stop_xvfb(proc: Any) -> None:
-        """Stop Xvfb process."""
-        if proc is not None:
-            proc.terminate()
-            try:
-                proc.wait(timeout=5)
-            except Exception:
-                proc.kill()
-            logger.debug("Xvfb stopped")
-
     # --- Screenshot helpers ---
 
     async def _save_failure_screenshot(self, page: Any) -> None:

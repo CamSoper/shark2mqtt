@@ -93,21 +93,26 @@ HA_COMMAND_TO_MODE: dict[str, OperatingMode] = {
     "return_to_base": OperatingMode.RETURN,
 }
 
-# Ayla device property names
-PROP_OPERATING_MODE = "Operating_Mode"
-PROP_CHARGING_STATUS = "Charging_Status"
-PROP_BATTERY_CAPACITY = "Battery_Capacity"
-PROP_ERROR_CODE = "Error_Code"
-PROP_EXTENDED_ERROR_CODE = "Extended_Error_Code"
-PROP_RSSI = "RSSI"
-PROP_POWER_MODE = "Power_Mode"
-PROP_DOCKED_STATUS = "DockedStatus"
-PROP_FIND_DEVICE = "Find_Device"
-PROP_EXEC_COMMAND = "Exec_Command"
-PROP_ROBOT_ROOM_LIST = "Robot_Room_List"
-PROP_ROOM_DEFINITION = "Room_Definition"
-PROP_DEVICE_MODEL_NUMBER = "Device_Model_Number"
-PROP_ROBOT_FIRMWARE_VERSION = "Robot_Firmware_Version"
+# Ayla device property names — GET (read) and SET (write) are separate
+# Read properties (returned by GET /properties.json)
+PROP_GET_OPERATING_MODE = "GET_Operating_Mode"
+PROP_GET_CHARGING_STATUS = "GET_Charging_Status"
+PROP_GET_BATTERY_CAPACITY = "GET_Battery_Capacity"
+PROP_GET_ERROR_CODE = "GET_Error_Code"
+PROP_GET_EXTENDED_ERROR_CODE = "GET_Extended_Error_Code"
+PROP_GET_RSSI = "GET_RSSI"
+PROP_GET_POWER_MODE = "GET_Power_Mode"
+PROP_GET_DOCKED_STATUS = "GET_DockedStatus"
+PROP_GET_ROBOT_ROOM_LIST = "GET_Robot_Room_List"
+PROP_GET_ROOM_DEFINITION = "GET_Room_Definition"
+PROP_GET_DEVICE_MODEL_NUMBER = "GET_Device_Model_Number"
+PROP_GET_ROBOT_FIRMWARE_VERSION = "GET_Robot_Firmware_Version"
+PROP_GET_FAN_JET_SETTING = "GET_FanJetSetting"
+
+# Write properties (used with POST /datapoints.json)
+PROP_SET_OPERATING_MODE = "SET_Operating_Mode"
+PROP_SET_POWER_MODE = "SET_Power_Mode"
+PROP_SET_FIND_DEVICE = "SET_Find_Device"
 
 # Error code descriptions (common ones)
 ERROR_CODES: dict[int, str] = {
