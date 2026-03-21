@@ -166,7 +166,9 @@ class MqttClient:
     async def publish_state(self, device: SharkVacuum) -> None:
         """Publish device state, attributes, and availability."""
         dsn = device.dsn
-        available = "online" if device.is_online else "offline"
+        # Always report available when we have data — Ayla's connection_status
+        # just means the vacuum's WiFi is asleep, not that state is stale.
+        available = "online"
 
         await self._publish(f"{self._prefix}/{dsn}/state", device.to_state_payload(), retain=True)
         await self._publish(f"{self._prefix}/{dsn}/attributes", device.to_attributes_payload(), retain=True)
