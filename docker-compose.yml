@@ -1,0 +1,10 @@
+services:
+  shark2mqtt:
+    build: .
+    env_file: .env
+    volumes:
+      - shark2mqtt_data:/data
+    restart: unless-stopped
+
+volumes:
+  shark2mqtt_data:
