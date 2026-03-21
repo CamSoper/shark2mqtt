@@ -32,4 +32,4 @@ class Settings(BaseSettings):
     auth_once: bool = False
     offline: bool = False
 
-    model_config = {"env_prefix": "", "case_sensitive": False}
+    model_config = {"env_file": ".env", "env_prefix": "", "case_sensitive": False}

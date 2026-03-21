@@ -21,6 +21,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpango-1.0-0 \
     libcairo2 \
     libasound2 \
+    xvfb \
+    xauth \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -40,4 +42,6 @@ RUN useradd -m shark \
 
 USER shark
 
-ENTRYPOINT ["python", "-m", "src.main"]
+# xvfb-run provides a virtual display for headed Chromium,
+# which is needed to bypass Cloudflare Turnstile CAPTCHA.
+ENTRYPOINT ["xvfb-run", "--auto-servernum", "python", "-m", "src.main"]

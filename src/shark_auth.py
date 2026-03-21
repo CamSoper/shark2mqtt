@@ -194,12 +194,31 @@ class SharkAuth:
         verifier, challenge = self.generate_pkce_pair()
         authorize_url = self.build_authorize_url(state, challenge)
 
-        logger.info("Launching headless browser for Auth0 login (Patchright)")
+        # Use headed mode if DISPLAY is set (e.g., via xvfb-run).
+        # Headed mode bypasses Cloudflare Turnstile CAPTCHA.
+        # In Docker, use: xvfb-run python -m src.main
+        has_display = bool(os.environ.get("DISPLAY"))
+        chromium_path = self._find_chromium() if has_display else None
+        headless = not has_display or chromium_path is None
+
+        if headless:
+            logger.info("Launching headless browser for Auth0 login")
+        else:
+            logger.info("Launching headed browser for Auth0 login (DISPLAY=%s)", os.environ["DISPLAY"])
 
         auth_code_future: asyncio.Future[str] = asyncio.get_event_loop().create_future()
 
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
+            launch_args = ["--no-sandbox", "--disable-setuid-sandbox"]
+            launch_kwargs: dict[str, Any] = {
+                "headless": headless,
+                "args": launch_args,
+            }
+            if not headless:
+                launch_args.append("--disable-gpu")
+                launch_kwargs["executable_path"] = chromium_path
+                logger.debug("Using Chromium at %s", chromium_path)
+            browser = await p.chromium.launch(**launch_kwargs)
             try:
                 context_kwargs: dict[str, Any] = {}
                 if self._config.log_level.upper() == "DEBUG":
@@ -272,20 +291,23 @@ class SharkAuth:
                     await password_input.fill(self._config.shark_password)
 
                     # Submit password
+                    logger.debug("Submitting password")
                     submit_btn = page.locator(
                         'button[type="submit"], button:has-text("Continue")'
                     ).first
                     await submit_btn.click()
+                    logger.debug("Password submitted, waiting for response")
 
                     # Handle passkey enrollment interstitial
                     try:
                         skip_btn = page.locator('text="Continue without passkeys"')
-                        await skip_btn.click(timeout=5000)
+                        await skip_btn.click(timeout=10000)
+                        logger.debug("Skipped passkey enrollment")
                     except Exception:
                         pass  # Interstitial may not appear
 
                     # Wait for the redirect interception to capture the code
-                    code = await asyncio.wait_for(auth_code_future, timeout=30)
+                    code = await asyncio.wait_for(auth_code_future, timeout=60)
                     logger.info("Auth code captured from redirect")
 
                 except Exception as exc:
@@ -309,7 +331,84 @@ class SharkAuth:
         # Exchange code for tokens
         await self.exchange_code_for_tokens(code, verifier)
 
-    # --- PKCE helpers ---
+    # --- Browser helpers ---
+
+    @staticmethod
+    def _find_chromium() -> str | None:
+        """Find the full Chromium binary (not headless shell)."""
+        import glob
+        patterns = [
+            os.path.expanduser("~/.cache/ms-playwright/chromium-*/chrome-linux*/chrome"),
+            "/usr/bin/chromium",
+            "/usr/bin/chromium-browser",
+            "/usr/bin/google-chrome",
+        ]
+        for pattern in patterns:
+            matches = glob.glob(pattern)
+            if matches:
+                logger.debug("Found Chromium at %s", matches[0])
+                return matches[0]
+        return None
+
+    # --- Xvfb helpers ---
+
+    @staticmethod
+    async def _start_xvfb() -> Any:
+        """Start Xvfb virtual display for headed browser mode.
+
+        Uses xvfb-run style: start Xvfb, wait for it, set DISPLAY.
+        """
+        import subprocess
+
+        # Find a free display number
+        display_num = 99
+        display = f":{display_num}"
+
+        # Clean up stale lock files
+        lock_file = f"/tmp/.X{display_num}-lock"
+        socket_file = f"/tmp/.X11-unix/X{display_num}"
+        for f in (lock_file, socket_file):
+            try:
+                os.unlink(f)
+            except OSError:
+                pass
+
+        try:
+            proc = subprocess.Popen(
+                ["Xvfb", display, "-screen", "0", "1280x1024x24",
+                 "-nolisten", "tcp", "-ac"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+            )
+            # Wait for Xvfb to be ready
+            for _ in range(20):
+                await asyncio.sleep(0.25)
+                if proc.poll() is not None:
+                    stderr = proc.stderr.read().decode() if proc.stderr else ""
+                    logger.warning("Xvfb exited: %s", stderr.strip())
+                    return None
+                if os.path.exists(socket_file) or os.path.exists(lock_file):
+                    break
+
+            os.environ["DISPLAY"] = display
+            logger.debug("Xvfb started on %s (pid %d)", display, proc.pid)
+            return proc
+        except FileNotFoundError:
+            logger.warning("Xvfb not found — falling back to headless mode")
+            return None
+
+    @staticmethod
+    def _stop_xvfb(proc: Any) -> None:
+        """Stop Xvfb process."""
+        if proc is not None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except Exception:
+                proc.kill()
+            logger.debug("Xvfb stopped")
+
+    # --- Screenshot helpers ---
 
     async def _save_failure_screenshot(self, page: Any) -> None:
         """Save a screenshot on auth failure for debugging."""
