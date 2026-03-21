@@ -188,13 +188,13 @@ class SharkAuth:
         self._check_browser_rate_limit()
         self._record_browser_launch()
 
-        from playwright.async_api import async_playwright
+        from patchright.async_api import async_playwright
 
         state = secrets.token_urlsafe(16)
         verifier, challenge = self.generate_pkce_pair()
         authorize_url = self.build_authorize_url(state, challenge)
 
-        logger.info("Launching headless browser for Auth0 login")
+        logger.info("Launching headless browser for Auth0 login (Patchright)")
 
         auth_code_future: asyncio.Future[str] = asyncio.get_event_loop().create_future()
 
@@ -228,56 +228,100 @@ class SharkAuth:
                 # Navigate to Auth0 authorize
                 await page.goto(authorize_url, wait_until="networkidle")
 
-                # Fill login form
-                await page.fill('input[name="username"], input[type="email"]',
-                                self._config.shark_username)
-                await page.fill('input[name="password"], input[type="password"]',
-                                self._config.shark_password)
-                await page.click('button[type="submit"]')
-
-                # Handle passkey enrollment interstitial
+                auth_error: Exception | None = None
                 try:
-                    skip_btn = page.locator('text="Continue without passkeys"')
-                    await skip_btn.click(timeout=5000)
-                except Exception:
-                    pass  # Interstitial may not appear
+                    # Fill email — Auth0 uses a multi-step flow
+                    username_input = page.locator(
+                        'input[name="username"], input[type="email"]'
+                    ).first
+                    await username_input.wait_for(state="visible", timeout=15000)
+                    await username_input.fill(self._config.shark_username)
 
-                # Wait for the redirect interception to capture the code
-                code = await asyncio.wait_for(auth_code_future, timeout=30)
+                    # Handle Cloudflare Turnstile CAPTCHA if present
+                    # The checkbox is inside an iframe from challenges.cloudflare.com
+                    try:
+                        turnstile_frame = page.frame_locator(
+                            'iframe[src*="challenges.cloudflare.com"]'
+                        )
+                        checkbox = turnstile_frame.locator(
+                            'input[type="checkbox"], '
+                            'label, '
+                            'body'
+                        ).first
+                        # Wait briefly for Turnstile to load
+                        await page.wait_for_timeout(2000)
+                        if await page.locator('iframe[src*="challenges.cloudflare.com"]').count() > 0:
+                            logger.debug("Turnstile CAPTCHA detected, clicking")
+                            await checkbox.click(timeout=10000)
+                            # Wait for Turnstile to verify
+                            await page.wait_for_timeout(5000)
+                    except Exception as captcha_err:
+                        logger.debug("CAPTCHA handling: %s", captcha_err)
 
-                logger.info("Auth code captured from redirect")
+                    # Click Continue/Submit (Auth0 uses "Continue" button)
+                    submit_btn = page.locator(
+                        'button[type="submit"], button:has-text("Continue")'
+                    ).first
+                    await submit_btn.click()
 
-            except asyncio.TimeoutError:
-                # Save screenshot for debugging
-                try:
-                    screenshot_path = str(
-                        Path(self._config.token_dir)
-                        / f"auth_failure_{int(time.time())}.png"
-                    )
-                    await page.screenshot(path=screenshot_path)
-                    logger.error("Auth timed out. Screenshot saved to %s", screenshot_path)
-                except Exception:
-                    logger.error("Auth timed out and screenshot failed")
-                raise SharkAuthError("Browser auth timed out waiting for redirect")
-            except Exception as exc:
-                # Save screenshot for debugging
-                try:
-                    screenshot_path = str(
-                        Path(self._config.token_dir)
-                        / f"auth_failure_{int(time.time())}.png"
-                    )
-                    await page.screenshot(path=screenshot_path)
-                    logger.error("Auth failed. Screenshot saved to %s", screenshot_path)
-                except Exception:
-                    pass
-                raise SharkAuthError(f"Browser auth failed: {exc}") from exc
+                    # Wait for password field to appear (second step)
+                    password_input = page.locator(
+                        'input[name="password"], input[type="password"]'
+                    ).locator("visible=true").first
+                    await password_input.wait_for(state="visible", timeout=30000)
+                    await password_input.fill(self._config.shark_password)
+
+                    # Submit password
+                    submit_btn = page.locator(
+                        'button[type="submit"], button:has-text("Continue")'
+                    ).first
+                    await submit_btn.click()
+
+                    # Handle passkey enrollment interstitial
+                    try:
+                        skip_btn = page.locator('text="Continue without passkeys"')
+                        await skip_btn.click(timeout=5000)
+                    except Exception:
+                        pass  # Interstitial may not appear
+
+                    # Wait for the redirect interception to capture the code
+                    code = await asyncio.wait_for(auth_code_future, timeout=30)
+                    logger.info("Auth code captured from redirect")
+
+                except Exception as exc:
+                    auth_error = exc
+                    # Screenshot while page is still alive
+                    await self._save_failure_screenshot(page)
+
             finally:
                 await browser.close()
+
+            if auth_error is not None:
+                if isinstance(auth_error, (asyncio.TimeoutError, TimeoutError)):
+                    raise SharkAuthError(
+                        "Browser auth timed out waiting for redirect. "
+                        "Check credentials or screenshot in TOKEN_DIR."
+                    )
+                raise SharkAuthError(
+                    f"Browser auth failed: {auth_error}"
+                ) from auth_error
 
         # Exchange code for tokens
         await self.exchange_code_for_tokens(code, verifier)
 
     # --- PKCE helpers ---
+
+    async def _save_failure_screenshot(self, page: Any) -> None:
+        """Save a screenshot on auth failure for debugging."""
+        try:
+            screenshot_path = str(
+                Path(self._config.token_dir)
+                / f"auth_failure_{int(time.time())}.png"
+            )
+            await page.screenshot(path=screenshot_path)
+            logger.error("Auth failure screenshot saved to %s", screenshot_path)
+        except Exception:
+            logger.debug("Could not save failure screenshot")
 
     @staticmethod
     def generate_pkce_pair() -> tuple[str, str]:

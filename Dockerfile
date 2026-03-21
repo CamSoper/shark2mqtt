@@ -1,6 +1,6 @@
 FROM python:3.12-slim-bookworm
 
-# Install Playwright system dependencies
+# Install Patchright/Chromium system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     libnss3 \
@@ -28,8 +28,8 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Playwright Chromium browser
-RUN playwright install chromium
+# Install Patchright Chromium browser (undetected, bypasses bot detection)
+RUN patchright install chromium
 
 COPY src/ ./src/
 
