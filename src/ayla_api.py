@@ -78,7 +78,7 @@ class AylaApi:
 
         session = await self._get_session()
         async with session.post(url, json=payload) as resp:
-            if resp.status != 200:
+            if resp.status >= 300:
                 text = await resp.text()
                 raise SharkAuthError(
                     f"Ayla token_sign_in failed ({resp.status}): {text}"
@@ -113,7 +113,7 @@ class AylaApi:
 
         session = await self._get_session()
         async with session.post(url, json=payload) as resp:
-            if resp.status != 200:
+            if resp.status >= 300:
                 text = await resp.text()
                 raise SharkAuthError(
                     f"Ayla refresh failed ({resp.status}): {text}"
@@ -177,14 +177,14 @@ class AylaApi:
                 async with session.request(
                     method, url, headers=self._headers, **kwargs
                 ) as retry_resp:
-                    if retry_resp.status != 200:
+                    if retry_resp.status >= 300:
                         text = await retry_resp.text()
                         raise AylaApiError(
                             f"Ayla API error ({retry_resp.status}): {text}"
                         )
                     return await retry_resp.json()
 
-            if resp.status != 200:
+            if resp.status >= 300:
                 text = await resp.text()
                 raise AylaApiError(f"Ayla API error ({resp.status}): {text}")
             return await resp.json()
