@@ -26,6 +26,7 @@ async def poll_loop(
 ) -> None:
     """Periodically poll device state and publish to MQTT."""
     while True:
+        any_active = False
         try:
             await auth.ensure_authenticated()
 
@@ -35,6 +36,8 @@ async def poll_loop(
                 devices_map[device.dsn] = device
                 await mqtt.publish_discovery(device)
                 await mqtt.publish_state(device)
+                if device.ha_state == "cleaning":
+                    any_active = True
 
         except SharkAuthError as e:
             logger.error("Auth error during poll: %s", e)
@@ -43,7 +46,8 @@ async def poll_loop(
         except Exception:
             logger.exception("Poll cycle failed")
 
-        await asyncio.sleep(config.poll_interval)
+        interval = config.poll_interval_active if any_active else config.poll_interval
+        await asyncio.sleep(interval)
 
 
 async def run(config: Settings) -> None:

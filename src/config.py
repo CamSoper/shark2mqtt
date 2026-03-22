@@ -24,6 +24,7 @@ class Settings(BaseSettings):
 
     # Polling
     poll_interval: int = 300
+    poll_interval_active: int = 20
 
     # Token persistence
     token_dir: str = "/data"

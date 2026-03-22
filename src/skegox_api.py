@@ -183,3 +183,34 @@ class SkegoxApi:
             logger.warning("Unknown fan speed: %s", speed)
             return
         await self.set_desired_property(snd, "Power_Mode", val)
+
+    async def clean_rooms(
+        self,
+        snd: str,
+        rooms: list[str],
+        floor_id: str,
+        clean_type: str = "dry",
+        clean_count: int = 1,
+        mode: str = "UserRoom",
+    ) -> None:
+        """Start cleaning specific rooms.
+
+        Args:
+            snd: Device SND identifier.
+            rooms: List of room names (e.g., ["Kitchen", "Den"]).
+            floor_id: Floor identifier (e.g., "2A38EFA6").
+            clean_type: "dry" for vacuum, "wet" for mop.
+            clean_count: Number of passes (1 = normal, 2 = matrix/ultra).
+            mode: "UserRoom" for normal, "UltraClean" for matrix clean.
+        """
+        areas_payload = json.dumps({
+            "areas_to_clean": {mode: rooms},
+            "clean_count": clean_count,
+            "floor_id": floor_id,
+            "cleantype": clean_type,
+        })
+        await self.set_desired_property(snd, "AreasToClean_V3", areas_payload)
+        logger.info(
+            "Clean rooms %s on %s (mode=%s, count=%d, type=%s)",
+            rooms, snd, mode, clean_count, clean_type,
+        )

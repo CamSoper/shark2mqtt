@@ -191,6 +191,7 @@ class MqttClient:
 
         await self._client.subscribe(f"{self._prefix}/+/command")
         await self._client.subscribe(f"{self._prefix}/+/set_fan_speed")
+        await self._client.subscribe(f"{self._prefix}/+/clean_rooms")
 
         async for message in self._client.messages:
             topic = message.topic.value
@@ -213,8 +214,40 @@ class MqttClient:
                     speed = payload.strip().lower()
                     logger.info("Fan speed received: %s for %s", speed, device_id)
                     await command_handler.set_fan_speed(device_id, speed)
+                elif topic.endswith("/clean_rooms"):
+                    logger.info("Clean rooms received for %s", device_id)
+                    await self._handle_clean_rooms(command_handler, device_id, payload)
             except Exception:
                 logger.exception("Failed to handle command on %s", topic)
+
+    @staticmethod
+    async def _handle_clean_rooms(handler: Any, device_id: str, payload: str) -> None:
+        """Handle a room cleaning command.
+
+        Payload is JSON:
+        {
+            "rooms": ["Kitchen", "Den"],
+            "floor_id": "2A38EFA6",
+            "mode": "UserRoom",        // optional, default "UserRoom"
+            "clean_count": 1,           // optional, default 1 (2 = matrix)
+            "clean_type": "dry"         // optional, default "dry"
+        }
+        """
+        import json as _json
+        data = _json.loads(payload)
+        rooms = data.get("rooms", [])
+        floor_id = data.get("floor_id", "")
+        if not rooms or not floor_id:
+            logger.warning("clean_rooms requires 'rooms' and 'floor_id'")
+            return
+        await handler.clean_rooms(
+            device_id,
+            rooms=rooms,
+            floor_id=floor_id,
+            clean_type=data.get("clean_type", "dry"),
+            clean_count=data.get("clean_count", 1),
+            mode=data.get("mode", "UserRoom"),
+        )
 
     def _extract_dsn(self, topic: str) -> str | None:
         """Extract DSN from topic like 'shark2mqtt/{dsn}/command'."""
