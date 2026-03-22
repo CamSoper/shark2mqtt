@@ -69,27 +69,21 @@ async def run(config: Settings) -> None:
             api = SkegoxApi(config, auth)
             if config.shark_household_id:
                 api.set_household(config.shark_household_id)
-                devices = await api.get_all_devices()
-                logger.info(
-                    "Auth successful. Found %d device(s). Tokens saved.", len(devices)
-                )
-                for d in devices:
-                    v = SharkVacuum.from_skegox(d)
-                    logger.info("  %s (%s): battery=%d%%", v.product_name, v.dsn, v.battery_level)
-            else:
-                logger.info("Auth successful. Tokens saved. Set SHARK_HOUSEHOLD_ID to list devices.")
+            devices = await api.get_all_devices()
+            logger.info(
+                "Auth successful. Found %d device(s). Tokens saved.", len(devices)
+            )
+            for d in devices:
+                v = SharkVacuum.from_skegox(d)
+                logger.info("  %s (%s): battery=%d%%", v.product_name, v.dsn, v.battery_level)
             await api.close()
         else:
             logger.error("Authentication failed — no id_token obtained")
         return
 
-    # Validate config
-    if not config.shark_household_id:
-        logger.error("SHARK_HOUSEHOLD_ID is required. Get it from the Shark app HAR capture.")
-        return
-
     api = SkegoxApi(config, auth)
-    api.set_household(config.shark_household_id)
+    if config.shark_household_id:
+        api.set_household(config.shark_household_id)
 
     # Shared mutable device map for command handler
     devices_map: dict[str, SharkVacuum] = {}

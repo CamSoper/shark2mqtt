@@ -92,7 +92,7 @@ class SkegoxApi:
     # --- Device discovery ---
 
     async def discover(self) -> None:
-        """Discover user ID from JWT and household ID from Ayla devices."""
+        """Discover user ID from JWT and household ID from skegox API."""
         import base64
         token = self._auth.id_token
         if not token:
@@ -105,6 +105,20 @@ class SkegoxApi:
         sub = claims.get("sub", "")
         self._user_id = sub.split("|", 1)[1] if "|" in sub else sub
         logger.info("User ID: %s", self._user_id)
+
+        # Auto-discover household ID if not set
+        if not self._household_id:
+            data = await self._request(
+                "GET", f"/householdsEndUser?userId={self._user_id}"
+            )
+            households = data.get("households", [])
+            if households:
+                self._household_id = households[0]
+                logger.info("Discovered household ID: %s", self._household_id)
+            else:
+                raise SharkAuthError(
+                    "No households found for user. Is a Shark device registered?"
+                )
 
     async def auto_discover_household(self) -> str | None:
         """Auto-discover household ID by querying Ayla for a device SND,
@@ -180,21 +194,14 @@ class SkegoxApi:
         return None
 
     async def list_devices(self) -> list[dict[str, Any]]:
-        """List all devices for the user across all households."""
-        if not self._user_id:
+        """List all devices for the user."""
+        if not self._user_id or not self._household_id:
             await self.discover()
 
-        # We need the household ID. Try getting it from any device.
-        # First, try a known household if we have one cached.
-        if self._household_id:
-            path = f"/devicesEndUserController/{self._household_id}/users/{self._user_id}"
-            data = await self._request("GET", path)
-            items = data.get("items", data) if isinstance(data, dict) else data
-            return items if isinstance(items, list) else [items]
-
-        raise SharkAuthError(
-            "No household ID. Set SHARK_HOUSEHOLD_ID or call set_household()."
-        )
+        path = f"/devicesEndUserController/{self._household_id}/users/{self._user_id}"
+        data = await self._request("GET", path)
+        items = data.get("items", data) if isinstance(data, dict) else data
+        return items if isinstance(items, list) else [items]
 
     def set_household(self, household_id: str) -> None:
         """Set the household ID."""
