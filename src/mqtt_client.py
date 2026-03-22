@@ -74,11 +74,12 @@ class MqttClient:
                 "state_topic": f"{self._prefix}/{dsn}/state",
                 "json_attributes_topic": f"{self._prefix}/{dsn}/attributes",
                 "command_topic": f"{self._prefix}/{dsn}/command",
+                "send_command_topic": f"{self._prefix}/{dsn}/send_command",
                 "set_fan_speed_topic": f"{self._prefix}/{dsn}/set_fan_speed",
                 "fan_speed_list": ["eco", "normal", "max"],
                 "supported_features": [
                     "start", "stop", "pause", "return_home",
-                    "locate", "fan_speed", "status",
+                    "locate", "fan_speed", "status", "send_command",
                 ],
                 "availability_topic": f"{self._prefix}/{dsn}/available",
                 "payload_available": "online",
@@ -191,7 +192,7 @@ class MqttClient:
 
         await self._client.subscribe(f"{self._prefix}/+/command")
         await self._client.subscribe(f"{self._prefix}/+/set_fan_speed")
-        await self._client.subscribe(f"{self._prefix}/+/clean_rooms")
+        await self._client.subscribe(f"{self._prefix}/+/send_command")
 
         async for message in self._client.messages:
             topic = message.topic.value
@@ -214,40 +215,64 @@ class MqttClient:
                     speed = payload.strip().lower()
                     logger.info("Fan speed received: %s for %s", speed, device_id)
                     await command_handler.set_fan_speed(device_id, speed)
-                elif topic.endswith("/clean_rooms"):
-                    logger.info("Clean rooms received for %s", device_id)
-                    await self._handle_clean_rooms(command_handler, device_id, payload)
+                elif topic.endswith("/send_command"):
+                    logger.info("send_command received for %s", device_id)
+                    await self._handle_send_command(
+                        command_handler, device_id, payload, devices,
+                    )
             except Exception:
                 logger.exception("Failed to handle command on %s", topic)
 
     @staticmethod
-    async def _handle_clean_rooms(handler: Any, device_id: str, payload: str) -> None:
-        """Handle a room cleaning command.
+    async def _handle_send_command(
+        handler: Any, device_id: str, payload: str,
+        devices: dict[str, Any],
+    ) -> None:
+        """Handle vacuum.send_command from HA.
 
-        Payload is JSON:
-        {
-            "rooms": ["Kitchen", "Den"],
-            "floor_id": "2A38EFA6",
-            "mode": "UserRoom",        // optional, default "UserRoom"
-            "clean_count": 1,           // optional, default 1 (2 = matrix)
-            "clean_type": "dry"         // optional, default "dry"
-        }
+        HA publishes JSON: {"command": "...", "params": {...}}
+
+        Supported commands:
+          clean_rooms: {"rooms": ["Kitchen"], "mode": "UserRoom",
+                        "clean_count": 1, "clean_type": "dry"}
+                       floor_id is auto-detected from device attributes.
+                       Set mode="UltraClean" and clean_count=2 for matrix clean.
         """
         import json as _json
         data = _json.loads(payload)
-        rooms = data.get("rooms", [])
-        floor_id = data.get("floor_id", "")
-        if not rooms or not floor_id:
-            logger.warning("clean_rooms requires 'rooms' and 'floor_id'")
-            return
-        await handler.clean_rooms(
-            device_id,
-            rooms=rooms,
-            floor_id=floor_id,
-            clean_type=data.get("clean_type", "dry"),
-            clean_count=data.get("clean_count", 1),
-            mode=data.get("mode", "UserRoom"),
-        )
+        command = data.get("command", "")
+        params = data.get("params", data.get("param", {}))
+        if not isinstance(params, dict):
+            params = {}
+
+        if command == "clean_rooms":
+            rooms = params.get("rooms", [])
+            if not rooms:
+                logger.warning("clean_rooms requires 'rooms' in params")
+                return
+
+            # Auto-detect floor_id from device attributes
+            floor_id = params.get("floor_id", "")
+            if not floor_id:
+                device = devices.get(device_id)
+                if device and hasattr(device, "floor_id"):
+                    floor_id = device.floor_id
+            if not floor_id:
+                logger.warning("clean_rooms: no floor_id (set in params or wait for device poll)")
+                return
+
+            await handler.clean_rooms(
+                device_id,
+                rooms=rooms,
+                floor_id=floor_id,
+                clean_type=params.get("clean_type", "dry"),
+                clean_count=params.get("clean_count", 1),
+                mode=params.get("mode", "UserRoom"),
+            )
+        else:
+            # Forward unknown commands as generic send_command
+            logger.info("Forwarding send_command '%s' as generic command", command)
+            await handler.send_command(device_id, command)
 
     def _extract_dsn(self, topic: str) -> str | None:
         """Extract DSN from topic like 'shark2mqtt/{dsn}/command'."""

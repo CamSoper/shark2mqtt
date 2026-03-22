@@ -36,6 +36,8 @@ class SharkVacuum:
         self.lan_ip: str = device_data.get("lan_ip", "")
         self.connection_status: str = device_data.get("connection_status", "Offline")
         self._properties: dict[str, Any] = {}
+        self.floor_id: str = ""
+        self.rooms: list[str] = []
 
     @classmethod
     def from_skegox(cls, device_data: dict[str, Any]) -> SharkVacuum:
@@ -75,6 +77,27 @@ class SharkVacuum:
         fw = registry.get("FW_VERSION", "")
         if fw:
             vac._properties[PROP_GET_ROBOT_FIRMWARE_VERSION] = fw
+
+        # Parse room list from Robot_Room_List (format: "FloorID:Room1:Room2:...")
+        # Available in Ayla but may be empty in skegox shadow
+        room_list_raw = reported.get("Robot_Room_List", {})
+        room_list_val = room_list_raw.get("value", room_list_raw) if isinstance(room_list_raw, dict) else room_list_raw
+        if room_list_val and isinstance(room_list_val, str) and ":" in room_list_val:
+            parts = room_list_val.split(":")
+            vac.floor_id = parts[0]
+            vac.rooms = parts[1:]
+
+        # Also try to get floor_id from AreasToClean_V3 if not set
+        if not vac.floor_id:
+            atc = reported.get("AreasToClean_V3", {})
+            atc_val = atc.get("value", atc) if isinstance(atc, dict) else atc
+            if atc_val and isinstance(atc_val, str) and "floor_id" in atc_val:
+                try:
+                    import json as _json
+                    atc_data = _json.loads(atc_val)
+                    vac.floor_id = atc_data.get("floor_id", "")
+                except (ValueError, TypeError):
+                    pass
 
         return vac
 
@@ -189,7 +212,7 @@ class SharkVacuum:
 
     def to_attributes_payload(self) -> dict[str, Any]:
         """Payload for the attributes topic."""
-        return {
+        attrs: dict[str, Any] = {
             "battery_level": self.battery_level,
             "is_charging": self.is_charging,
             "error_code": self.error_code,
@@ -200,6 +223,10 @@ class SharkVacuum:
             "firmware_version": self.firmware_version,
             "model_number": self.model_number,
         }
+        if self.rooms:
+            attrs["rooms"] = self.rooms
+            attrs["floor_id"] = self.floor_id
+        return attrs
 
     @property
     def device_info(self) -> dict[str, Any]:
