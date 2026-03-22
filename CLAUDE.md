@@ -70,44 +70,8 @@ The skegox API does not expose room names. They're fetched from the legacy Ayla 
 ### Active polling
 Poll interval drops from 300s to 20s when any vacuum has `ha_state == "cleaning"`, matching the vacuum's own undocked report rate.
 
-## Hasher.x7k9p2m (Cracked, Not Currently Used)
-The SharkClean app computes a session hash via `libcustomhash.so` (5.4KB ARM64 native library). The hash feeds into the request signing scheme, but since signatures aren't validated, we don't use it. Preserved here in case SharkNinja starts enforcing signatures.
-
-```python
-def x7k9p2m(aud: str, sid: str) -> str:
-    """SharkNinja's custom hash — reverse-engineered from ARM64 disassembly.
-    Inputs: aud = Auth0 client ID, sid = session ID from JWT.
-    Output: 16-hex-char string (two 32-bit accumulators).
-    Verified against 25 Frida test vectors from Android emulator.
-    """
-    GR = 0x9E3779B9  # golden ratio constant
-    M = 0xFFFFFFFF   # 32-bit mask
-    w10 = w4 = 0
-    for ch in aud + sid:
-        b = ord(ch)
-        t = (w10 << 5) & M
-        w14 = (w4 * 29 + b) & M
-        w10_new = (t - w10 + b) & M
-        w12 = (w10_new ^ (w14 >> 16)) & M
-        w10 = (w12 * 29 + GR) & M
-        w12 = (w14 ^ (w12 << 16)) & M
-        w4 = ((w12 << 5) - w12 + GR) & M
-    return f"{w10:08x}{w4:08x}"
-```
-
-Test vectors (from Frida instrumentation on Android emulator):
-```text
-('', '')           -> 0000000000000000
-('A', '')          -> 9e378116a6168198
-('', 'A')          -> 9e378116a6168198  # confirms concat(aud, sid)
-('A', 'B')         -> 3b1c519939e09a7f
-('B', 'A')         -> 3b1c51b6a69f073d  # order matters
-('AAAA', 'BBBB')   -> ee53e43bf2f5a958
-('ABCD', 'ABCD')   -> 9d8cb31daf84e23c
-(prod_aud, prod_sid) -> 89d67872de48226a  # production values
-```
-
-The hash is a session key seed, but the per-request HMAC key derivation chain (how it goes from this hash to the final `Signature=` value) was never solved. If signatures start being enforced, the next step would be hooking the native HMAC output via Frida on the Android emulator.
+## Request Signing (Not Currently Enforced)
+The `x-iotn-request-signature` header uses a custom `SN-HMAC-SHA256` scheme. The signing key seed comes from `Hasher.x7k9p2m` in `libcustomhash.so` — algorithm fully cracked with test vectors, documented in the Notion technical reference page. If SharkNinja starts validating signatures, the missing piece is the per-request HMAC key derivation chain (hash → signing key). Next step would be Frida instrumentation of the native HMAC output.
 
 ## API Constants
 - **Skegox base**: `https://stakra.slatra.thor.skegox.com`
