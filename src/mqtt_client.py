@@ -151,20 +151,93 @@ class MqttClient:
             retain=True,
         )
 
+        # Error binary sensor (ON when error_code != 0)
+        await self._publish(
+            f"{HA_DISCOVERY_PREFIX}/binary_sensor/{uid}_error/config",
+            {
+                "name": f"{device.product_name} Error",
+                "unique_id": f"{uid}_error",
+                "object_id": f"{uid}_error",
+                "state_topic": f"{self._prefix}/{dsn}/attributes",
+                "value_template": "{{ value_json.error_code != 0 }}",
+                "payload_on": True,
+                "payload_off": False,
+                "device_class": "problem",
+                "availability_topic": f"{self._prefix}/{dsn}/available",
+                "payload_available": "online",
+                "payload_not_available": "offline",
+                "device": device.device_info,
+            },
+            retain=True,
+        )
+
+        # Error text sensor (shows error description)
+        await self._publish(
+            f"{HA_DISCOVERY_PREFIX}/sensor/{uid}_error_text/config",
+            {
+                "name": f"{device.product_name} Error Status",
+                "unique_id": f"{uid}_error_text",
+                "object_id": f"{uid}_error_text",
+                "state_topic": f"{self._prefix}/{dsn}/attributes",
+                "value_template": "{{ value_json.error_text }}",
+                "entity_category": "diagnostic",
+                "icon": "mdi:alert-circle-outline",
+                "availability_topic": f"{self._prefix}/{dsn}/available",
+                "payload_available": "online",
+                "payload_not_available": "offline",
+                "device": device.device_info,
+            },
+            retain=True,
+        )
+
+        # Device trigger for error events (fires in HA automation UI)
+        await self._publish(
+            f"{HA_DISCOVERY_PREFIX}/device_automation/{uid}_error_trigger/config",
+            {
+                "automation_type": "trigger",
+                "type": "action",
+                "subtype": "error",
+                "topic": f"{self._prefix}/{dsn}/error_event",
+                "device": device.device_info,
+            },
+            retain=True,
+        )
+
         logger.info("Published HA discovery for %s (%s)", device.product_name, dsn)
 
     # --- State publishing ---
 
-    async def publish_state(self, device: SharkVacuum) -> None:
-        """Publish device state, attributes, and availability."""
+    async def publish_state(
+        self, device: SharkVacuum, prev_error: dict[str, int] | None = None,
+    ) -> None:
+        """Publish device state, attributes, and availability.
+
+        If prev_error is provided, fire a device trigger event when a NEW
+        error is detected (error_code transitions from 0 to non-zero).
+        """
         dsn = device.dsn
-        # Always report available when we have data — Ayla's connection_status
-        # just means the vacuum's WiFi is asleep, not that state is stale.
         available = "online"
 
         await self._publish(f"{self._prefix}/{dsn}/state", device.to_state_payload(), retain=True)
         await self._publish(f"{self._prefix}/{dsn}/attributes", device.to_attributes_payload(), retain=True)
         await self._publish(f"{self._prefix}/{dsn}/available", available, retain=True)
+
+        # Fire error event if error_code changed to non-zero
+        if prev_error is not None and device.error_code != 0:
+            old_code = prev_error.get(dsn, 0)
+            if old_code != device.error_code:
+                await self._publish(
+                    f"{self._prefix}/{dsn}/error_event",
+                    {
+                        "error_code": device.error_code,
+                        "error_text": device.error_text,
+                        "device_name": device.product_name,
+                    },
+                )
+                logger.warning(
+                    "Error on %s: %s (code %d)",
+                    device.product_name, device.error_text, device.error_code,
+                )
 
     async def publish_unavailable(self, devices: list[SharkVacuum]) -> None:
         """Mark all devices as unavailable."""

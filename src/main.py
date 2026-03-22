@@ -26,6 +26,8 @@ async def poll_loop(
     room_data: dict[str, tuple[str, list[str]]],
 ) -> None:
     """Periodically poll device state and publish to MQTT."""
+    prev_errors: dict[str, int] = {}
+
     while True:
         any_active = False
         try:
@@ -41,7 +43,8 @@ async def poll_loop(
 
                 devices_map[device.dsn] = device
                 await mqtt.publish_discovery(device)
-                await mqtt.publish_state(device)
+                await mqtt.publish_state(device, prev_error=prev_errors)
+                prev_errors[device.dsn] = device.error_code
                 if device.ha_state == "cleaning":
                     any_active = True
 

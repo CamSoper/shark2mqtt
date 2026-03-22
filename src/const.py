@@ -114,16 +114,36 @@ PROP_SET_OPERATING_MODE = "SET_Operating_Mode"
 PROP_SET_POWER_MODE = "SET_Power_Mode"
 PROP_SET_FIND_DEVICE = "SET_Find_Device"
 
-# Error code descriptions (common ones)
+# Error code descriptions (from libsharkclean_android.so)
 ERROR_CODES: dict[int, str] = {
     0: "No error",
     1: "Side brush stuck",
     2: "Main brush stuck",
     3: "Left wheel stuck",
     4: "Right wheel stuck",
-    5: "Cliff sensor error",
+    5: "Cliff sensor blocked",
     6: "Bumper stuck",
     7: "Dust bin missing",
     8: "Low battery",
     9: "Charging error",
+    10: "Fall sensor blocked",
+    11: "Front wheel stuck",
+    12: "Top bumper stuck",
+    13: "Critical battery",
+    14: "Wheel encoder alarm",
+    15: "Accelerometer stuck",
+    16: "Water tank empty",
+    17: "Pump overcurrent",
+    18: "Agitator overcurrent",
+    19: "Water tank attached",
+    20: "Cannot return to dock",
+    21: "Internal communication error",
+    22: "Low battery carpet detect",
+    23: "Localization error",
+    24: "Auto empty error",
+    25: "Dustbin clogged",
+    26: "LIDAR error",
+    27: "Fan jet error",
+    28: "Front wheel alarm",
+    29: "Map corrupt",
 }
