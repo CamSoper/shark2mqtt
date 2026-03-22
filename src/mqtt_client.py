@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -256,6 +257,7 @@ class MqttClient:
         self,
         command_handler: Any,
         devices: dict[str, SharkVacuum],
+        command_event: asyncio.Event | None = None,
     ) -> None:
         """Subscribe to command topics and dispatch via handler.
 
@@ -295,6 +297,8 @@ class MqttClient:
                     await self._handle_send_command(
                         command_handler, device_id, payload, devices,
                     )
+                if command_event is not None:
+                    command_event.set()
             except Exception:
                 logger.exception("Failed to handle command on %s", topic)
 

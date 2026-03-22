@@ -24,6 +24,7 @@ async def poll_loop(
     config: Settings,
     devices_map: dict[str, SharkVacuum],
     room_data: dict[str, tuple[str, list[str]]],
+    command_event: asyncio.Event,
 ) -> None:
     """Periodically poll device state and publish to MQTT."""
     prev_errors: dict[str, int] = {}
@@ -56,7 +57,12 @@ async def poll_loop(
             logger.exception("Poll cycle failed")
 
         interval = config.poll_interval_active if any_active else config.poll_interval
-        await asyncio.sleep(interval)
+        try:
+            await asyncio.wait_for(command_event.wait(), timeout=interval)
+            command_event.clear()
+            logger.debug("Poll triggered early by command")
+        except TimeoutError:
+            pass
 
 
 async def run(config: Settings) -> None:
@@ -107,9 +113,11 @@ async def run(config: Settings) -> None:
         async with mqtt:
             await mqtt.publish_status({"state": "online"})
 
+            command_event = asyncio.Event()
+
             async with asyncio.TaskGroup() as tg:
-                tg.create_task(poll_loop(api, mqtt, auth, config, devices_map, room_data))
-                tg.create_task(mqtt.command_listener(api, devices_map))
+                tg.create_task(poll_loop(api, mqtt, auth, config, devices_map, room_data, command_event))
+                tg.create_task(mqtt.command_listener(api, devices_map, command_event))
 
                 async def _shutdown_watcher() -> None:
                     await stop_event.wait()

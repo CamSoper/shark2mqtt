@@ -4,3 +4,5 @@ patchright>=1.58
 pydantic>=2.0,<3
 pydantic-settings>=2.0,<3
 tenacity>=8.0,<10
+pytest>=8.0,<9
+pytest-asyncio>=0.24,<1
