@@ -37,6 +37,47 @@ class SharkVacuum:
         self.connection_status: str = device_data.get("connection_status", "Offline")
         self._properties: dict[str, Any] = {}
 
+    @classmethod
+    def from_skegox(cls, device_data: dict[str, Any]) -> SharkVacuum:
+        """Create a SharkVacuum from skegox API response."""
+        metadata = device_data.get("metadata", {})
+        registry = device_data.get("registry", {})
+        telemetry = device_data.get("telemetry", {})
+        connectivity = device_data.get("connectivityStatus", {})
+        shadow = device_data.get("shadow", {})
+        props = shadow.get("properties", {})
+        reported = props.get("reported", {})
+
+        # Extract SND from registry Battery_Serial_Num (format: DSN-SND)
+        bsn = registry.get("Battery_Serial_Num", "")
+        snd = bsn.split("-")[-1] if "-" in bsn else bsn
+
+        # Build a device_data dict compatible with the constructor
+        compat = {
+            "dsn": snd or device_data.get("deviceId", ""),
+            "product_name": metadata.get("deviceName", "Shark Robot"),
+            "model": registry.get("Device_Model_Number", "Unknown"),
+            "oem_model": registry.get("Device_Serial_Num", ""),
+            "connection_status": "Online" if connectivity.get("connected") else "Offline",
+        }
+        vac = cls(compat)
+
+        # Populate properties from telemetry (real-time) and shadow (reported)
+        # Telemetry has live battery/RSSI; shadow has operating mode, etc.
+        for key, value in telemetry.items():
+            vac._properties[f"GET_{key}"] = value
+
+        for key, val_obj in reported.items():
+            value = val_obj.get("value", val_obj) if isinstance(val_obj, dict) else val_obj
+            vac._properties[f"GET_{key}"] = value
+
+        # Also set firmware from registry
+        fw = registry.get("FW_VERSION", "")
+        if fw:
+            vac._properties[PROP_GET_ROBOT_FIRMWARE_VERSION] = fw
+
+        return vac
+
     def update_properties(self, properties: list[dict[str, Any]]) -> None:
         """Update device properties from Ayla API response.
 
