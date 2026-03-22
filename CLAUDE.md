@@ -1,9 +1,11 @@
 # CLAUDE.md — shark2mqtt
 
 ## What This Is
+
 Standalone Python service bridging SharkNinja robot vacuums to Home Assistant via MQTT autodiscovery. Auth → cloud API → MQTT.
 
 ## How It Works
+
 1. **Auth**: Patchright (undetected Playwright fork) launches **headed** Chromium via `xvfb-run` to log into Auth0. Cloudflare Turnstile auto-passes in headed mode (blocks headless). CDP `Network.requestWillBeSent` captures the custom-scheme redirect. Tokens persisted to disk.
 2. **Device API**: REST calls to `stakra.slatra.thor.skegox.com`. Bearer token + API key. Request signatures are required headers but **NOT validated** server-side — random hex strings are accepted.
 3. **Room data**: Fetched from legacy Ayla API on startup — only source for room names. Not in skegox.
@@ -20,4 +22,5 @@ Standalone Python service bridging SharkNinja robot vacuums to Home Assistant vi
 **Room data from Ayla only**: Skegox doesn't expose room names. They come from the Ayla `GET_Robot_Room_List` property (format: `FloorID:Room1:Room2:...`).
 
 ## If Signing Starts Being Enforced
+
 The `x7k9p2m` hash algorithm is fully cracked with 25 test vectors — documented in the Notion technical reference page ("shark2mqtt — Technical Reference"). The missing piece is the per-request HMAC key derivation. Next step: Frida on Android emulator to hook native HMAC output.
