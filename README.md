@@ -161,6 +161,10 @@ data:
     room: "Kitchen"
 ```
 
+## Contributing
+
+This project scratches a personal itch — I'm sharing it in case it helps others, not looking to take on a maintenance burden. If something doesn't work for you, please submit a **pull request** rather than an issue. I only own two vacuum models, so I can't test or troubleshoot devices I don't have. PRs with fixes or support for additional models are welcome; issues requesting changes are likely to be closed.
+
 ## Building from Source
 
 ```bash
