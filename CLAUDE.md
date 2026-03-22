@@ -95,6 +95,18 @@ def x7k9p2m(aud: str, sid: str) -> str:
     return f"{w10:08x}{w4:08x}"
 ```
 
+Test vectors (from Frida instrumentation on Android emulator):
+```text
+('', '')           -> 0000000000000000
+('A', '')          -> 9e378116a6168198
+('', 'A')          -> 9e378116a6168198  # confirms concat(aud, sid)
+('A', 'B')         -> 3b1c519939e09a7f
+('B', 'A')         -> 3b1c51b6a69f073d  # order matters
+('AAAA', 'BBBB')   -> ee53e43bf2f5a958
+('ABCD', 'ABCD')   -> 9d8cb31daf84e23c
+(prod_aud, prod_sid) -> 89d67872de48226a  # production values
+```
+
 The hash is a session key seed, but the per-request HMAC key derivation chain (how it goes from this hash to the final `Signature=` value) was never solved. If signatures start being enforced, the next step would be hooking the native HMAC output via Frida on the Android emulator.
 
 ## API Constants
