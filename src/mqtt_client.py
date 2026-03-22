@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import TYPE_CHECKING, Any
 
 import aiomqtt
@@ -63,14 +64,15 @@ class MqttClient:
         """Publish HA MQTT autodiscovery configs for a vacuum and its sensors."""
         dsn = device.dsn
         uid = f"shark2mqtt_{dsn}"
+        slug = re.sub(r"[^a-z0-9]+", "_", device.product_name.lower()).strip("_")
 
         # Vacuum entity
         await self._publish(
             f"{HA_DISCOVERY_PREFIX}/vacuum/{uid}/config",
             {
-                "name": device.product_name,
+                "name": None,
                 "unique_id": uid,
-                "object_id": uid,
+                "object_id": slug,
                 "state_topic": f"{self._prefix}/{dsn}/state",
                 "json_attributes_topic": f"{self._prefix}/{dsn}/attributes",
                 "command_topic": f"{self._prefix}/{dsn}/command",
@@ -94,9 +96,9 @@ class MqttClient:
         await self._publish(
             f"{HA_DISCOVERY_PREFIX}/sensor/{uid}_battery/config",
             {
-                "name": f"{device.product_name} Battery",
+                "name": "Battery",
                 "unique_id": f"{uid}_battery",
-                "object_id": f"{uid}_battery",
+                "object_id": f"{slug}_battery",
                 "state_topic": f"{self._prefix}/{dsn}/attributes",
                 "value_template": "{{ value_json.battery_level }}",
                 "unit_of_measurement": "%",
@@ -114,9 +116,9 @@ class MqttClient:
         await self._publish(
             f"{HA_DISCOVERY_PREFIX}/sensor/{uid}_rssi/config",
             {
-                "name": f"{device.product_name} WiFi Signal",
+                "name": "WiFi Signal",
                 "unique_id": f"{uid}_rssi",
-                "object_id": f"{uid}_rssi",
+                "object_id": f"{slug}_rssi",
                 "state_topic": f"{self._prefix}/{dsn}/attributes",
                 "value_template": "{{ value_json.rssi }}",
                 "unit_of_measurement": "dBm",
@@ -135,9 +137,9 @@ class MqttClient:
         await self._publish(
             f"{HA_DISCOVERY_PREFIX}/binary_sensor/{uid}_charging/config",
             {
-                "name": f"{device.product_name} Charging",
+                "name": "Charging",
                 "unique_id": f"{uid}_charging",
-                "object_id": f"{uid}_charging",
+                "object_id": f"{slug}_charging",
                 "state_topic": f"{self._prefix}/{dsn}/attributes",
                 "value_template": "{{ value_json.is_charging }}",
                 "payload_on": True,
@@ -155,9 +157,9 @@ class MqttClient:
         await self._publish(
             f"{HA_DISCOVERY_PREFIX}/binary_sensor/{uid}_error/config",
             {
-                "name": f"{device.product_name} Error",
+                "name": "Error",
                 "unique_id": f"{uid}_error",
-                "object_id": f"{uid}_error",
+                "object_id": f"{slug}_error",
                 "state_topic": f"{self._prefix}/{dsn}/attributes",
                 "value_template": "{{ value_json.error_code != 0 }}",
                 "payload_on": True,
@@ -175,9 +177,9 @@ class MqttClient:
         await self._publish(
             f"{HA_DISCOVERY_PREFIX}/sensor/{uid}_error_text/config",
             {
-                "name": f"{device.product_name} Error Status",
+                "name": "Error Status",
                 "unique_id": f"{uid}_error_text",
-                "object_id": f"{uid}_error_text",
+                "object_id": f"{slug}_error_text",
                 "state_topic": f"{self._prefix}/{dsn}/attributes",
                 "value_template": "{{ value_json.error_text }}",
                 "entity_category": "diagnostic",
