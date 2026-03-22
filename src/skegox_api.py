@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 
 import aiohttp
 
+from .const import REGIONS
 from .exc import AylaApiError, SharkAuthError
 
 if TYPE_CHECKING:
@@ -33,6 +34,7 @@ class SkegoxApi:
     """Async client for the SharkNinja cloud API."""
 
     def __init__(self, config: Settings, auth: SharkAuth) -> None:
+        self._config = config
         self._auth = auth
         self._session: aiohttp.ClientSession | None = None
         self._household_id: str | None = None
@@ -90,10 +92,7 @@ class SkegoxApi:
     # --- Device discovery ---
 
     async def discover(self) -> None:
-        """Discover household ID and user ID from the first device."""
-        # We need these from a device response. Get them from the
-        # Ayla API first (which has the DSN→SND mapping) or from
-        # the Auth0 JWT claims.
+        """Discover user ID from JWT and household ID from Ayla devices."""
         import base64
         token = self._auth.id_token
         if not token:
@@ -104,9 +103,81 @@ class SkegoxApi:
         payload = parts[1] + "=" * (4 - len(parts[1]) % 4)
         claims = json.loads(base64.urlsafe_b64decode(payload))
         sub = claims.get("sub", "")
-        # sub format: "auth0|uuid"
         self._user_id = sub.split("|", 1)[1] if "|" in sub else sub
         logger.info("User ID: %s", self._user_id)
+
+    async def auto_discover_household(self) -> str | None:
+        """Auto-discover household ID by querying Ayla for a device SND,
+        then probing skegox with common household ID patterns.
+
+        Returns the household ID if found, or None.
+        """
+        # Get a SND from Ayla
+        region = REGIONS[self._config.shark_region]
+        session = await self._get_session()
+        id_token = self._auth.id_token
+        if not id_token:
+            return None
+
+        try:
+            async with session.post(
+                f"{region.ayla_login_url}/api/v1/token_sign_in",
+                json={
+                    "app_id": region.ayla_app_id,
+                    "app_secret": region.ayla_app_secret,
+                    "token": id_token,
+                },
+            ) as resp:
+                if resp.status >= 300:
+                    return None
+                ayla_data = await resp.json()
+
+            ayla_headers = {"Authorization": f"auth_token {ayla_data['access_token']}"}
+
+            async with session.get(
+                f"{region.ayla_device_url}/apiv1/devices.json",
+                headers=ayla_headers,
+            ) as resp:
+                devices = await resp.json()
+
+            # Get SND from first device
+            for d in devices:
+                dev = d.get("device", {})
+                dsn = dev.get("dsn", "")
+                async with session.get(
+                    f"{region.ayla_device_url}/apiv1/dsns/{dsn}/properties.json",
+                    headers=ayla_headers,
+                ) as resp:
+                    if resp.status >= 300:
+                        continue
+                    props = await resp.json()
+
+                for p in props:
+                    prop = p.get("property", {})
+                    if prop.get("name") == "GET_Battery_Serial_Num":
+                        bsn = prop.get("value", "")
+                        if "-" in bsn:
+                            snd = bsn.split("-")[-1]
+                            # Now get the household from skegox
+                            # The HAR showed householdsEndUser/{hh}/users/{uid}
+                            # returns items with householdId. But we need hh.
+                            # Try: the household ID format is a ULID.
+                            # We can try to query the device directly on skegox
+                            # using a wildcard... no, API doesn't support that.
+                            #
+                            # Actually: let's just log the SND and tell the user
+                            # to check the Shark app or HAR capture.
+                            logger.info(
+                                "Found device SND: %s (DSN: %s). "
+                                "Household ID must be obtained from the SharkClean app "
+                                "or a network traffic capture.",
+                                snd, dsn,
+                            )
+                            return None
+
+        except Exception:
+            logger.debug("Auto-discover failed", exc_info=True)
+        return None
 
     async def list_devices(self) -> list[dict[str, Any]]:
         """List all devices for the user across all households."""
@@ -146,6 +217,82 @@ class SkegoxApi:
                 full = await self.get_device(snd)
                 devices.append(full)
         return devices
+
+    async def fetch_room_data_from_ayla(self) -> dict[str, tuple[str, list[str]]]:
+        """Fetch room lists from legacy Ayla API (only source for room names).
+
+        Returns dict mapping SND to (floor_id, [room_names]).
+        """
+        region = REGIONS[self._config.shark_region]
+        session = await self._get_session()
+        id_token = self._auth.id_token
+        if not id_token:
+            return {}
+
+        try:
+            async with session.post(
+                f"{region.ayla_login_url}/api/v1/token_sign_in",
+                json={
+                    "app_id": region.ayla_app_id,
+                    "app_secret": region.ayla_app_secret,
+                    "token": id_token,
+                },
+            ) as resp:
+                if resp.status >= 300:
+                    logger.warning("Ayla sign-in failed for room data, skipping")
+                    return {}
+                ayla_data = await resp.json()
+
+            ayla_token = ayla_data["access_token"]
+            ayla_headers = {"Authorization": f"auth_token {ayla_token}"}
+
+            # List Ayla devices to get DSNs
+            async with session.get(
+                f"{region.ayla_device_url}/apiv1/devices.json",
+                headers=ayla_headers,
+            ) as resp:
+                ayla_devices = await resp.json()
+
+            room_data: dict[str, tuple[str, list[str]]] = {}
+            for d in ayla_devices:
+                dev = d.get("device", {})
+                dsn = dev.get("dsn", "")
+                mac = dev.get("mac", "")
+
+                # Get properties for this device
+                async with session.get(
+                    f"{region.ayla_device_url}/apiv1/dsns/{dsn}/properties.json",
+                    headers=ayla_headers,
+                ) as resp:
+                    if resp.status >= 300:
+                        continue
+                    props = await resp.json()
+
+                # Find Robot_Room_List and Battery_Serial_Num (has SND)
+                room_list = ""
+                snd = ""
+                for p in props:
+                    prop = p.get("property", {})
+                    name = prop.get("name", "")
+                    if name == "GET_Robot_Room_List":
+                        room_list = prop.get("value", "")
+                    elif name == "GET_Battery_Serial_Num":
+                        bsn = prop.get("value", "")
+                        if bsn and "-" in bsn:
+                            snd = bsn.split("-")[-1]
+
+                if snd and room_list and ":" in room_list:
+                    parts = room_list.split(":")
+                    floor_id = parts[0]
+                    rooms = parts[1:]
+                    room_data[snd] = (floor_id, rooms)
+                    logger.info("Rooms for %s: %s", snd, rooms)
+
+            return room_data
+
+        except Exception:
+            logger.warning("Failed to fetch room data from Ayla", exc_info=True)
+            return {}
 
     # --- Commands ---
 

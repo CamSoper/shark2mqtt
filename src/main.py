@@ -23,6 +23,7 @@ async def poll_loop(
     auth: SharkAuth,
     config: Settings,
     devices_map: dict[str, SharkVacuum],
+    room_data: dict[str, tuple[str, list[str]]],
 ) -> None:
     """Periodically poll device state and publish to MQTT."""
     while True:
@@ -33,6 +34,11 @@ async def poll_loop(
             raw_devices = await api.get_all_devices()
             for raw in raw_devices:
                 device = SharkVacuum.from_skegox(raw)
+
+                # Enrich with room data from Ayla if available
+                if device.dsn in room_data and not device.rooms:
+                    device.floor_id, device.rooms = room_data[device.dsn]
+
                 devices_map[device.dsn] = device
                 await mqtt.publish_discovery(device)
                 await mqtt.publish_state(device)
@@ -97,11 +103,15 @@ async def run(config: Settings) -> None:
     try:
         await auth.ensure_authenticated()
 
+        # Fetch room data from Ayla (only source for room names)
+        logger.info("Fetching room data from Ayla...")
+        room_data = await api.fetch_room_data_from_ayla()
+
         async with mqtt:
             await mqtt.publish_status({"state": "online"})
 
             async with asyncio.TaskGroup() as tg:
-                tg.create_task(poll_loop(api, mqtt, auth, config, devices_map))
+                tg.create_task(poll_loop(api, mqtt, auth, config, devices_map, room_data))
                 tg.create_task(mqtt.command_listener(api, devices_map))
 
                 async def _shutdown_watcher() -> None:

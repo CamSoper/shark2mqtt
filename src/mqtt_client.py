@@ -151,7 +151,65 @@ class MqttClient:
             retain=True,
         )
 
-        logger.info("Published HA discovery for %s (%s)", device.product_name, dsn)
+        # Per-room clean buttons
+        for room in device.rooms:
+            room_slug = room.lower().replace(" ", "_")
+            room_uid = f"{uid}_clean_{room_slug}"
+            await self._publish(
+                f"{HA_DISCOVERY_PREFIX}/button/{room_uid}/config",
+                {
+                    "name": f"{device.product_name} Clean {room}",
+                    "unique_id": room_uid,
+                    "object_id": room_uid,
+                    "command_topic": f"{self._prefix}/{dsn}/send_command",
+                    "payload_press": json.dumps({
+                        "command": "clean_rooms",
+                        "params": {
+                            "rooms": [room],
+                            "floor_id": device.floor_id,
+                        },
+                    }),
+                    "availability_topic": f"{self._prefix}/{dsn}/available",
+                    "payload_available": "online",
+                    "payload_not_available": "offline",
+                    "icon": "mdi:robot-vacuum",
+                    "device": device.device_info,
+                },
+                retain=True,
+            )
+
+        # Matrix clean button (all rooms, 2x)
+        if device.rooms:
+            matrix_uid = f"{uid}_matrix_clean"
+            await self._publish(
+                f"{HA_DISCOVERY_PREFIX}/button/{matrix_uid}/config",
+                {
+                    "name": f"{device.product_name} Matrix Clean",
+                    "unique_id": matrix_uid,
+                    "object_id": matrix_uid,
+                    "command_topic": f"{self._prefix}/{dsn}/send_command",
+                    "payload_press": json.dumps({
+                        "command": "clean_rooms",
+                        "params": {
+                            "rooms": device.rooms,
+                            "floor_id": device.floor_id,
+                            "mode": "UltraClean",
+                            "clean_count": 2,
+                        },
+                    }),
+                    "availability_topic": f"{self._prefix}/{dsn}/available",
+                    "payload_available": "online",
+                    "payload_not_available": "offline",
+                    "icon": "mdi:robot-vacuum-variant",
+                    "device": device.device_info,
+                },
+                retain=True,
+            )
+
+        logger.info(
+            "Published HA discovery for %s (%s) — %d rooms",
+            device.product_name, dsn, len(device.rooms),
+        )
 
     # --- State publishing ---
 
