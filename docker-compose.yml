@@ -1,5 +1,6 @@
 services:
   shark2mqtt:
+    image: ghcr.io/camsoper/shark2mqtt:latest
     build: .
     env_file: .env
     volumes:

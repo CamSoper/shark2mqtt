@@ -27,21 +27,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Install Patchright Chromium browser (undetected, bypasses bot detection)
-RUN patchright install chromium
-
-COPY src/ ./src/
-
-# Create non-root user and data directory
+# Create non-root user and data directory early so Chromium installs to the right path
 RUN useradd -m shark \
     && mkdir -p /data \
     && chown -R shark:shark /app /data
 
-USER shark
+COPY --chown=shark:shark requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# xvfb-run provides a virtual display for headed Chromium,
-# which is needed to bypass Cloudflare Turnstile CAPTCHA.
-ENTRYPOINT ["xvfb-run", "--auto-servernum", "python", "-m", "src.main"]
+# Install Patchright Chromium browser as the shark user
+USER shark
+RUN patchright install chromium
+
+COPY --chown=shark:shark src/ ./src/
+
+ENV PYTHONUNBUFFERED=1
+
+# Start Xvfb in the background and run the app directly.
+# A virtual display is needed for headed Chromium to bypass Cloudflare Turnstile.
+ENTRYPOINT ["/bin/sh", "-c", "Xvfb :99 -screen 0 1024x768x16 &\nexport DISPLAY=:99\nexec python -m src.main \"$@\"", "--"]
