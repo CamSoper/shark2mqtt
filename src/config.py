@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     mqtt_password: str | None = None
     mqtt_prefix: str = "shark2mqtt"
 
+    # SharkNinja cloud (skegox)
+    shark_household_id: str | None = None
+
     # Polling
     poll_interval: int = 300
 

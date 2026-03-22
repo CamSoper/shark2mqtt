@@ -8,16 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 import aiomqtt
 
-from .const import (
-    HA_COMMAND_TO_MODE,
-    POWER_MODE_BY_NAME,
-    PROP_SET_FIND_DEVICE,
-    PROP_SET_OPERATING_MODE,
-    PROP_SET_POWER_MODE,
-)
-
 if TYPE_CHECKING:
-    from .ayla_api import AylaApi
     from .config import Settings
     from .shark_device import SharkVacuum
 
@@ -186,9 +177,16 @@ class MqttClient:
     # --- Command handling ---
 
     async def command_listener(
-        self, ayla: AylaApi, devices: dict[str, SharkVacuum]
+        self,
+        command_handler: Any,
+        devices: dict[str, SharkVacuum],
     ) -> None:
-        """Subscribe to command topics and dispatch to Ayla API."""
+        """Subscribe to command topics and dispatch via handler.
+
+        command_handler must implement:
+          send_command(device_id, command) -> None
+          set_fan_speed(device_id, speed) -> None
+        """
         assert self._client is not None
 
         await self._client.subscribe(f"{self._prefix}/+/command")
@@ -197,48 +195,26 @@ class MqttClient:
         async for message in self._client.messages:
             topic = message.topic.value
             payload = message.payload.decode() if isinstance(message.payload, bytes) else str(message.payload)
-            dsn = self._extract_dsn(topic)
+            device_id = self._extract_dsn(topic)
 
-            if not dsn:
+            if not device_id:
                 continue
 
-            if dsn not in devices:
-                logger.warning("Command for unknown device: %s", dsn)
+            if device_id not in devices:
+                logger.warning("Command for unknown device: %s", device_id)
                 continue
 
             try:
                 if topic.endswith("/command"):
-                    await self._handle_command(ayla, dsn, payload)
+                    command = payload.strip().lower()
+                    logger.info("Command received: %s for %s", command, device_id)
+                    await command_handler.send_command(device_id, command)
                 elif topic.endswith("/set_fan_speed"):
-                    await self._handle_fan_speed(ayla, dsn, payload)
+                    speed = payload.strip().lower()
+                    logger.info("Fan speed received: %s for %s", speed, device_id)
+                    await command_handler.set_fan_speed(device_id, speed)
             except Exception:
                 logger.exception("Failed to handle command on %s", topic)
-
-    async def _handle_command(self, ayla: AylaApi, dsn: str, payload: str) -> None:
-        """Handle a vacuum command."""
-        command = payload.strip().lower()
-        logger.info("Command received: %s for %s", command, dsn)
-
-        if command == "locate":
-            await ayla.set_device_property(dsn, PROP_SET_FIND_DEVICE, 1)
-            return
-
-        mode = HA_COMMAND_TO_MODE.get(command)
-        if mode is not None:
-            await ayla.set_device_property(dsn, PROP_SET_OPERATING_MODE, mode.value)
-        else:
-            logger.warning("Unknown command: %s", command)
-
-    async def _handle_fan_speed(self, ayla: AylaApi, dsn: str, payload: str) -> None:
-        """Handle a fan speed change."""
-        speed = payload.strip().lower()
-        logger.info("Fan speed received: %s for %s", speed, dsn)
-
-        power_mode = POWER_MODE_BY_NAME.get(speed)
-        if power_mode is not None:
-            await ayla.set_device_property(dsn, PROP_SET_POWER_MODE, power_mode.value)
-        else:
-            logger.warning("Unknown fan speed: %s", speed)
 
     def _extract_dsn(self, topic: str) -> str | None:
         """Extract DSN from topic like 'shark2mqtt/{dsn}/command'."""
