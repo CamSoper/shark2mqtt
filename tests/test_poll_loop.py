@@ -39,16 +39,16 @@ async def test_poll_wakes_early_on_command_event(
         {}, {}, command_event,
     ))
     await set_event_soon()
-    # Give the loop a moment to wake and run the second poll
-    await asyncio.sleep(0.1)
+    # Give the loop time to wake, wait the 5s post-command delay, and run the second poll
+    await asyncio.sleep(5.5)
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
     elapsed = time.monotonic() - start
 
     assert poll_count == 2
-    # Should complete well under the 10s poll interval
-    assert elapsed < 2.0
+    # Should complete well under the 10s poll interval (5s delay + overhead)
+    assert elapsed < 8.0
 
 
 @pytest.mark.asyncio

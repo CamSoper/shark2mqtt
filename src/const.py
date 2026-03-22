@@ -61,9 +61,9 @@ class OperatingMode(IntEnum):
 class PowerMode(IntEnum):
     """Suction power levels."""
 
-    ECO = 1
-    NORMAL = 2
-    MAX = 3
+    ECO = 0
+    NORMAL = 1
+    MAX = 2
 
 
 # Map OperatingMode to Home Assistant vacuum state strings

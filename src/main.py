@@ -60,7 +60,8 @@ async def poll_loop(
         try:
             await asyncio.wait_for(command_event.wait(), timeout=interval)
             command_event.clear()
-            logger.debug("Poll triggered early by command")
+            logger.debug("Poll triggered early by command, waiting for device to update")
+            await asyncio.sleep(5)
         except TimeoutError:
             pass
 

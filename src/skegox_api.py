@@ -331,7 +331,7 @@ class SkegoxApi:
 
     async def set_fan_speed(self, snd: str, speed: str) -> None:
         """Set vacuum fan speed (eco, normal, max)."""
-        speed_map = {"eco": 1, "normal": 2, "max": 3}
+        speed_map = {"eco": 0, "normal": 1, "max": 2}
         val = speed_map.get(speed.lower())
         if val is None:
             logger.warning("Unknown fan speed: %s", speed)
