@@ -55,6 +55,7 @@ async def poll_loop(
             await mqtt.publish_unavailable(list(devices_map.values()))
         except Exception:
             logger.exception("Poll cycle failed")
+            await mqtt.publish_unavailable(list(devices_map.values()))
 
         interval = config.poll_interval_active if any_active else config.poll_interval
         try:

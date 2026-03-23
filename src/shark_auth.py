@@ -91,7 +91,7 @@ class SharkAuth:
         self._tokens.ayla_token_expiry = expiry.isoformat()
         self._save_tokens()
 
-    async def ensure_authenticated(self) -> str:
+    async def ensure_authenticated(self, force_refresh: bool = False) -> str:
         """Return a valid Auth0 id_token, refreshing if needed.
 
         Auth cascade:
@@ -112,6 +112,10 @@ class SharkAuth:
         # Step 1: Load cached tokens
         if not self._tokens:
             self._tokens = self._load_tokens()
+
+        # Invalidate stale id_token when caller signals a 401
+        if force_refresh and self._tokens:
+            self._tokens.auth0_id_token = None
 
         # If we have a valid id_token, return it
         if self._tokens and self._tokens.auth0_id_token:

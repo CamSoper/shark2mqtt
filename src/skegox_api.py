@@ -77,7 +77,7 @@ class SkegoxApi:
             if resp.status == 401:
                 # Token expired — refresh and retry
                 logger.warning("Skegox 401 — refreshing auth")
-                await self._auth.ensure_authenticated()
+                await self._auth.ensure_authenticated(force_refresh=True)
                 headers = self._headers()
                 async with session.request(method, url, headers=headers, **kwargs) as retry:
                     if retry.status >= 300:
