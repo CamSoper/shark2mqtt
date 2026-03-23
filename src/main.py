@@ -46,7 +46,7 @@ async def poll_loop(
                 await mqtt.publish_discovery(device)
                 await mqtt.publish_state(device, prev_error=prev_errors)
                 prev_errors[device.dsn] = device.error_code
-                if device.ha_state == "cleaning":
+                if device.ha_state != "docked":
                     any_active = True
 
         except SharkAuthError as e:
