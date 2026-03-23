@@ -97,6 +97,10 @@ Each vacuum is automatically discovered by Home Assistant with the following ent
 | `sensor.<name>_error_text` | Sensor | Current error description |
 | `binary_sensor.<name>_charging` | Binary Sensor | Charging state |
 | `binary_sensor.<name>_error` | Binary Sensor | Error state (on when error present) |
+| `button.<name>_clean_<room>` | Button | One-tap room cleaning (one per room) |
+| `select.<name>_clean_mode` | Select | Normal or Matrix (double-pass) cleaning mode |
+
+Room buttons and the clean mode select appear automatically when room data is available from the Shark cloud.
 
 An error device trigger fires when a new error is detected, usable in HA automations.
 
@@ -113,15 +117,28 @@ An error device trigger fires when a new error is detected, usable in HA automat
 
 ### Fan Speeds
 
-`eco`, `normal`, `max` — set via the fan speed control on the vacuum card.
+`eco`, `normal`, `max` — set via the fan speed control on the vacuum card. The selected speed is preserved while docked (the hardware resets to eco, but shark2mqtt remembers your choice).
 
 ## Commands
 
 Standard vacuum commands (start, stop, pause, return to base, locate) work through the Home Assistant vacuum card.
 
-For room-specific cleaning, use the `vacuum.send_command` service:
+### Room Cleaning
 
-### Clean a Single Room
+When room data is available from the Shark cloud, shark2mqtt creates **button entities** for each room (e.g., `button.shark_robot_clean_kitchen`). Press a button to start cleaning that room.
+
+A **Clean Mode** select entity (`select.shark_robot_clean_mode`) lets you toggle between:
+
+- **Normal** — single-pass clean
+- **Matrix** — two-pass UltraClean (deep clean)
+
+The selected mode applies to all room button presses.
+
+### Advanced: `vacuum.send_command`
+
+For automations that need multi-room cleaning or fine-grained control, you can still use `vacuum.send_command`:
+
+#### Clean a Single Room
 
 ```yaml
 service: vacuum.send_command
@@ -133,7 +150,7 @@ data:
     room: "Kitchen"
 ```
 
-### Clean Multiple Rooms
+#### Clean Multiple Rooms
 
 ```yaml
 service: vacuum.send_command
@@ -147,7 +164,7 @@ data:
     clean_count: 1          # optional, default: 1
 ```
 
-### Deep Clean (Matrix Clean)
+#### Deep Clean (Matrix Clean)
 
 Two-pass UltraClean mode:
 

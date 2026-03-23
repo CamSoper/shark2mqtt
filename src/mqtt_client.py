@@ -27,6 +27,8 @@ class MqttClient:
         self._config = config
         self._prefix = config.mqtt_prefix
         self._client: aiomqtt.Client | None = None
+        self._clean_modes: dict[str, str] = {}  # device_id -> "Normal" or "Matrix"
+        self._fan_speed_overrides: dict[str, str] = {}  # device_id -> user-set speed
 
     async def __aenter__(self) -> MqttClient:
         will = aiomqtt.Will(
@@ -206,6 +208,52 @@ class MqttClient:
             retain=True,
         )
 
+        # Per-room clean buttons (only when room data is available)
+        if device.rooms:
+            for room in device.rooms:
+                room_slug = re.sub(r"[^a-z0-9]+", "_", room.lower()).strip("_")
+                await self._publish(
+                    f"{HA_DISCOVERY_PREFIX}/button/{uid}_clean_{room_slug}/config",
+                    {
+                        "name": f"Clean {room}",
+                        "unique_id": f"{uid}_clean_{room_slug}",
+                        "object_id": f"{slug}_clean_{room_slug}",
+                        "command_topic": f"{self._prefix}/{dsn}/clean_room",
+                        "payload_press": json.dumps({"room": room}),
+                        "icon": "mdi:robot-vacuum",
+                        "availability_topic": f"{self._prefix}/{dsn}/available",
+                        "payload_available": "online",
+                        "payload_not_available": "offline",
+                        "device": device.device_info,
+                    },
+                    retain=True,
+                )
+
+            # Clean mode select (Normal vs Matrix)
+            await self._publish(
+                f"{HA_DISCOVERY_PREFIX}/select/{uid}_clean_mode/config",
+                {
+                    "name": "Clean Mode",
+                    "unique_id": f"{uid}_clean_mode",
+                    "object_id": f"{slug}_clean_mode",
+                    "command_topic": f"{self._prefix}/{dsn}/clean_mode",
+                    "state_topic": f"{self._prefix}/{dsn}/clean_mode/state",
+                    "options": ["Normal", "Matrix"],
+                    "icon": "mdi:broom",
+                    "availability_topic": f"{self._prefix}/{dsn}/available",
+                    "payload_available": "online",
+                    "payload_not_available": "offline",
+                    "device": device.device_info,
+                },
+                retain=True,
+            )
+
+            # Publish current clean mode state
+            mode = self._clean_modes.get(dsn, "Normal")
+            await self._publish(
+                f"{self._prefix}/{dsn}/clean_mode/state", mode, retain=True,
+            )
+
         logger.info("Published HA discovery for %s (%s)", device.product_name, dsn)
 
     # --- State publishing ---
@@ -221,7 +269,12 @@ class MqttClient:
         dsn = device.dsn
         available = "online"
 
-        await self._publish(f"{self._prefix}/{dsn}/state", device.to_state_payload(), retain=True)
+        state_payload = device.to_state_payload()
+        # When docked, the device reports eco — use the user's last-set speed instead
+        if device.is_docked and dsn in self._fan_speed_overrides:
+            state_payload["fan_speed"] = self._fan_speed_overrides[dsn]
+
+        await self._publish(f"{self._prefix}/{dsn}/state", state_payload, retain=True)
         await self._publish(f"{self._prefix}/{dsn}/attributes", device.to_attributes_payload(), retain=True)
         await self._publish(f"{self._prefix}/{dsn}/available", available, retain=True)
 
@@ -270,6 +323,8 @@ class MqttClient:
         await self._client.subscribe(f"{self._prefix}/+/command")
         await self._client.subscribe(f"{self._prefix}/+/set_fan_speed")
         await self._client.subscribe(f"{self._prefix}/+/send_command")
+        await self._client.subscribe(f"{self._prefix}/+/clean_room")
+        await self._client.subscribe(f"{self._prefix}/+/clean_mode")
 
         async for message in self._client.messages:
             topic = message.topic.value
@@ -291,16 +346,64 @@ class MqttClient:
                 elif topic.endswith("/set_fan_speed"):
                     speed = payload.strip().lower()
                     logger.info("Fan speed received: %s for %s", speed, device_id)
+                    self._fan_speed_overrides[device_id] = speed
                     await command_handler.set_fan_speed(device_id, speed)
                 elif topic.endswith("/send_command"):
                     logger.info("send_command received for %s", device_id)
                     await self._handle_send_command(
                         command_handler, device_id, payload, devices,
                     )
+                elif topic.endswith("/clean_room"):
+                    logger.info("clean_room button pressed for %s", device_id)
+                    await self._handle_clean_room(
+                        command_handler, device_id, payload, devices,
+                    )
+                elif topic.endswith("/clean_mode"):
+                    mode = payload.strip()
+                    if mode in ("Normal", "Matrix"):
+                        self._clean_modes[device_id] = mode
+                        await self._publish(
+                            f"{self._prefix}/{device_id}/clean_mode/state",
+                            mode, retain=True,
+                        )
+                        logger.info("Clean mode set to %s for %s", mode, device_id)
+                    else:
+                        logger.warning("Unknown clean mode: %s", mode)
                 if command_event is not None:
                     command_event.set()
             except Exception:
                 logger.exception("Failed to handle command on %s", topic)
+
+    async def _handle_clean_room(
+        self, handler: Any, device_id: str, payload: str,
+        devices: dict[str, Any],
+    ) -> None:
+        """Handle room button press — dispatches clean_rooms with current mode."""
+        data = json.loads(payload)
+        room = data.get("room", "")
+        if not room:
+            logger.warning("clean_room button: no room in payload: %r", payload)
+            return
+
+        device = devices.get(device_id)
+        floor_id = ""
+        if device and hasattr(device, "floor_id"):
+            floor_id = device.floor_id
+        if not floor_id:
+            logger.warning("clean_room button: no floor_id for %s", device_id)
+            return
+
+        mode = self._clean_modes.get(device_id, "Normal")
+        if mode == "Matrix":
+            api_mode, clean_count = "UltraClean", 2
+        else:
+            api_mode, clean_count = "UserRoom", 1
+
+        await handler.clean_rooms(
+            device_id, rooms=[room], floor_id=floor_id,
+            clean_type="dry", clean_count=clean_count, mode=api_mode,
+        )
+        logger.info("Room clean started: %s on %s (mode=%s)", room, device_id, mode)
 
     @staticmethod
     async def _handle_send_command(
@@ -319,10 +422,23 @@ class MqttClient:
         """
         import json as _json
         data = _json.loads(payload)
+        logger.debug("send_command raw data: %r", data)
         command = data.get("command", "")
         params = data.get("params", data.get("param", {}))
+        # HA may send params as a JSON string — unwrap it
+        if isinstance(params, str):
+            try:
+                params = _json.loads(params)
+            except (ValueError, TypeError):
+                logger.warning("send_command params not valid JSON: %r", params)
+                params = {}
         if not isinstance(params, dict):
             params = {}
+        # HA puts service data keys at top level (not nested under "params")
+        # so merge any top-level keys (except "command") as fallback
+        for key, val in data.items():
+            if key not in ("command", "params", "param") and key not in params:
+                params[key] = val
 
         # Get floor_id from params or device attributes
         def get_floor_id() -> str:
