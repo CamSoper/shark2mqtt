@@ -2,7 +2,7 @@
 
 Bridge SharkNinja robot vacuums to [Home Assistant](https://www.home-assistant.io/) via MQTT autodiscovery.
 
-> **Note:** This project has been developed and tested with US-region Shark accounts and two specific models (both from Costco in the U.S.):
+> **Note:** This project has been developed and tested with US-region Shark accounts and two specific models (both from Costco in the US):
 > - **UR2500SR Series Shark AI Ultra Robot Vacuum with Self-Empty Base** (UR250BEXUS)
 > - **UR2360S Series Shark Matrix Plus** (UR2360EEUS)
 >
