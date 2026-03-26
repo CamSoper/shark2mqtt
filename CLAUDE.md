@@ -21,6 +21,6 @@ Standalone Python service bridging SharkNinja robot vacuums to Home Assistant vi
 
 **Room data from Ayla only**: Skegox doesn't expose room names. They come from the Ayla `GET_Robot_Room_List` property (format: `FloorID:Room1:Room2:...`).
 
-## If Signing Starts Being Enforced
+## If Message Signing Starts Being Enforced
 
-The `x7k9p2m` hash algorithm is fully cracked with 25 test vectors — documented in the Notion technical reference page ("shark2mqtt — Technical Reference"). The missing piece is the per-request HMAC key derivation. Next step: Frida on Android emulator to hook native HMAC output.
+`@CamSoper` has notes. Ask him for them.
