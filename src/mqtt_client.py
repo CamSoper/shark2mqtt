@@ -29,6 +29,7 @@ class MqttClient:
         self._client: aiomqtt.Client | None = None
         self._clean_modes: dict[str, str] = {}  # device_id -> "Normal" or "Matrix"
         self._fan_speed_overrides: dict[str, str] = {}  # device_id -> user-set speed
+        self._published_rooms: dict[str, set[str]] = {}  # device_id -> room slugs
 
     async def __aenter__(self) -> MqttClient:
         will = aiomqtt.Will(
@@ -209,9 +210,11 @@ class MqttClient:
         )
 
         # Per-room clean buttons (only when room data is available)
+        current_room_slugs: set[str] = set()
         if device.rooms:
             for room in device.rooms:
                 room_slug = re.sub(r"[^a-z0-9]+", "_", room.lower()).strip("_")
+                current_room_slugs.add(room_slug)
                 await self._publish(
                     f"{HA_DISCOVERY_PREFIX}/button/{uid}_clean_{room_slug}/config",
                     {
@@ -253,6 +256,17 @@ class MqttClient:
             await self._publish(
                 f"{self._prefix}/{dsn}/clean_mode/state", mode, retain=True,
             )
+
+        # Remove stale room buttons that no longer exist
+        prev_rooms = self._published_rooms.get(dsn, set())
+        stale_rooms = prev_rooms - current_room_slugs
+        for room_slug in stale_rooms:
+            await self._publish(
+                f"{HA_DISCOVERY_PREFIX}/button/{uid}_clean_{room_slug}/config",
+                "", retain=True,
+            )
+            logger.info("Removed stale room button %s for %s", room_slug, dsn)
+        self._published_rooms[dsn] = current_room_slugs
 
         logger.info("Published HA discovery for %s (%s)", device.product_name, dsn)
 
