@@ -38,6 +38,7 @@ class SharkVacuum:
         self._properties: dict[str, Any] = {}
         self.floor_id: str = ""
         self.rooms: list[str] = []
+        self.has_areas_v3: bool = False
 
     @classmethod
     def from_skegox(cls, device_data: dict[str, Any]) -> SharkVacuum:
@@ -78,8 +79,10 @@ class SharkVacuum:
         if fw:
             vac._properties[PROP_GET_ROBOT_FIRMWARE_VERSION] = fw
 
+        # Detect clean command capability from shadow properties
+        vac.has_areas_v3 = "AreasToClean_V3" in reported
+
         # Parse room list from Robot_Room_List (format: "FloorID:Room1:Room2:...")
-        # Available in Ayla but may be empty in skegox shadow
         room_list_raw = reported.get("Robot_Room_List", {})
         room_list_val = room_list_raw.get("value", room_list_raw) if isinstance(room_list_raw, dict) else room_list_raw
         if room_list_val and isinstance(room_list_val, str) and ":" in room_list_val:

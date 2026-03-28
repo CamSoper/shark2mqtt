@@ -8,7 +8,7 @@ Standalone Python service bridging SharkNinja robot vacuums to Home Assistant vi
 
 1. **Auth**: Patchright (undetected Playwright fork) launches **headed** Chromium via `xvfb-run` to log into Auth0. Cloudflare Turnstile auto-passes in headed mode (blocks headless). CDP `Network.requestWillBeSent` captures the custom-scheme redirect. Tokens persisted to disk.
 2. **Device API**: REST calls to `stakra.slatra.thor.skegox.com`. Bearer token + API key. Request signatures are required headers but **NOT validated** server-side — random hex strings are accepted.
-3. **Room data**: Fetched from legacy Ayla API on startup — only source for room names. Not in skegox.
+3. **Room data**: Preferred from skegox shadow `Robot_Room_List` (format: `FloorID:Room1:Room2:...`), falls back to Ayla `GET_Robot_Room_List` for devices whose skegox room list is empty (rooms configured before skegox migration). Skegox data is checked each poll cycle; Ayla data is fetched once at startup.
 4. **MQTT**: HA autodiscovery for vacuum, battery, RSSI, charging, and error entities. Commands via `vacuum.send_command`.
 
 ## Non-Obvious Implementation Details
@@ -19,7 +19,7 @@ Standalone Python service bridging SharkNinja robot vacuums to Home Assistant vi
 
 **Skegox property names**: Skegox shadow uses bare names (`Operating_Mode`), Ayla uses `GET_`/`SET_` prefixes. `SharkVacuum.from_skegox()` adds the `GET_` prefix to match the constants.
 
-**Room data from Ayla only**: Skegox doesn't expose room names. They come from the Ayla `GET_Robot_Room_List` property (format: `FloorID:Room1:Room2:...`).
+**Per-model clean commands**: Devices with `AreasToClean_V3` in their shadow (e.g., UR2360EEUS) use the V3 dict format. Devices without it (e.g., UR250BEXUS) use `Areas_To_Clean` with list format (`["Mode:Room"]`) plus `Operating_Mode: 2`. Detected automatically from shadow properties.
 
 ## If Message Signing Starts Being Enforced
 

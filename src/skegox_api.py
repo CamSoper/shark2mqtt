@@ -226,9 +226,11 @@ class SkegoxApi:
         return devices
 
     async def fetch_room_data_from_ayla(self) -> dict[str, tuple[str, list[str]]]:
-        """Fetch room lists from legacy Ayla API (only source for room names).
+        """Fetch room lists from legacy Ayla API as fallback for room names.
 
         Returns dict mapping SND to (floor_id, [room_names]).
+        Used when skegox Robot_Room_List is empty (rooms configured before
+        skegox migration).
         """
         region = REGIONS[self._config.shark_region]
         session = await self._get_session()
@@ -264,7 +266,6 @@ class SkegoxApi:
             for d in ayla_devices:
                 dev = d.get("device", {})
                 dsn = dev.get("dsn", "")
-                mac = dev.get("mac", "")
 
                 # Get properties for this device
                 async with session.get(
@@ -293,7 +294,7 @@ class SkegoxApi:
                     floor_id = parts[0]
                     rooms = parts[1:]
                     room_data[snd] = (floor_id, rooms)
-                    logger.info("Rooms for %s: %s", snd, rooms)
+                    logger.info("Ayla rooms for %s: %s", snd, rooms)
 
             return room_data
 
@@ -346,6 +347,7 @@ class SkegoxApi:
         clean_type: str = "dry",
         clean_count: int = 1,
         mode: str = "UserRoom",
+        use_v3: bool = False,
     ) -> None:
         """Start cleaning specific rooms.
 
@@ -356,15 +358,26 @@ class SkegoxApi:
             clean_type: "dry" for vacuum, "wet" for mop.
             clean_count: Number of passes (1 = normal, 2 = matrix/ultra).
             mode: "UserRoom" for normal, "UltraClean" for matrix clean.
+            use_v3: True for devices with AreasToClean_V3 (dict format),
+                    False for devices using Areas_To_Clean (list format).
         """
-        areas_payload = json.dumps({
-            "areas_to_clean": {mode: rooms},
-            "clean_count": clean_count,
-            "floor_id": floor_id,
-            "cleantype": clean_type,
-        })
-        await self.set_desired_property(snd, "AreasToClean_V3", areas_payload)
+        if use_v3:
+            areas_payload = json.dumps({
+                "areas_to_clean": {mode: rooms},
+                "clean_count": clean_count,
+                "floor_id": floor_id,
+                "cleantype": clean_type,
+            })
+            await self.set_desired_property(snd, "AreasToClean_V3", areas_payload)
+        else:
+            areas_payload = json.dumps({
+                "floor_id": floor_id,
+                "areas_to_clean": [f"{mode}:{room}" for room in rooms],
+                "clean_count": clean_count,
+            })
+            await self.set_desired_property(snd, "Areas_To_Clean", areas_payload)
+            await self.set_desired_property(snd, "Operating_Mode", 2)
         logger.info(
-            "Clean rooms %s on %s (mode=%s, count=%d, type=%s)",
-            rooms, snd, mode, clean_count, clean_type,
+            "Clean rooms %s on %s (mode=%s, count=%d, v3=%s)",
+            rooms, snd, mode, clean_count, use_v3,
         )

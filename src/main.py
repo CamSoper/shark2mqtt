@@ -23,7 +23,7 @@ async def poll_loop(
     auth: SharkAuth,
     config: Settings,
     devices_map: dict[str, SharkVacuum],
-    room_data: dict[str, tuple[str, list[str]]],
+    ayla_room_data: dict[str, tuple[str, list[str]]],
     command_event: asyncio.Event,
 ) -> None:
     """Periodically poll device state and publish to MQTT."""
@@ -38,9 +38,9 @@ async def poll_loop(
             for raw in raw_devices:
                 device = SharkVacuum.from_skegox(raw)
 
-                # Enrich with room data from Ayla if available
-                if device.dsn in room_data and not device.rooms:
-                    device.floor_id, device.rooms = room_data[device.dsn]
+                # Fall back to Ayla room data when skegox has none
+                if device.dsn in ayla_room_data and not device.rooms:
+                    device.floor_id, device.rooms = ayla_room_data[device.dsn]
 
                 devices_map[device.dsn] = device
                 await mqtt.publish_discovery(device)
@@ -108,9 +108,10 @@ async def run(config: Settings) -> None:
     try:
         await auth.ensure_authenticated()
 
-        # Fetch room data from Ayla (only source for room names)
+        # Fetch room data from Ayla as fallback for devices whose
+        # skegox Robot_Room_List is empty (rooms configured pre-migration)
         logger.info("Fetching room data from Ayla...")
-        room_data = await api.fetch_room_data_from_ayla()
+        ayla_room_data = await api.fetch_room_data_from_ayla()
 
         async with mqtt:
             await mqtt.publish_status({"state": "online"})
@@ -118,7 +119,7 @@ async def run(config: Settings) -> None:
             command_event = asyncio.Event()
 
             async with asyncio.TaskGroup() as tg:
-                tg.create_task(poll_loop(api, mqtt, auth, config, devices_map, room_data, command_event))
+                tg.create_task(poll_loop(api, mqtt, auth, config, devices_map, ayla_room_data, command_event))
                 tg.create_task(mqtt.command_listener(api, devices_map, command_event))
 
                 async def _shutdown_watcher() -> None:
