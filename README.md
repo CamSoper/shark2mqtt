@@ -7,18 +7,7 @@ Bridge SharkNinja robot vacuums to [Home Assistant](https://www.home-assistant.i
 
 ## Confirmed Working Models
 
-Models below have been confirmed working by users in the wild. Other SharkNinja robot vacuums likely work too -- this list reflects what's been reported, not the limit of what's supported.
-
-| Model | Region | Reported by | Notes |
-|---|---|---|---|
-| UR250BEXUS (Shark AI Ultra, UR2500SR) | US | [@CamSoper](https://github.com/CamSoper) | Dev hardware |
-| UR2360EEUS (Shark Matrix Plus, UR2360S) | US | [@CamSoper](https://github.com/CamSoper) | Dev hardware |
-| RV2110DDUS | US | [@gogorichie](https://github.com/gogorichie) ([#9](https://github.com/CamSoper/shark2mqtt/issues/9)) | |
-| RV2820VEUS | US | [@400HPMustang](https://github.com/400HPMustang) ([#8](https://github.com/CamSoper/shark2mqtt/issues/8)) | Pause command not honored by vacuum |
-| RV2820YECA (PowerDetect 2-in-1) | Canada (`us` region) | [@hslabbert](https://github.com/hslabbert) ([#4](https://github.com/CamSoper/shark2mqtt/issues/4)) | |
-| AV251WAXUS | US | [@Slivacki](https://github.com/Slivacki) ([#1](https://github.com/CamSoper/shark2mqtt/issues/1)) | |
-| UR250BE0US | US | [@Pau1ey](https://github.com/Pau1ey) ([#8](https://github.com/CamSoper/shark2mqtt/issues/8)) | |
-| Shark PowerDetect (model unspecified) | EU | [@hjennerway](https://github.com/hjennerway) ([#3](https://github.com/CamSoper/shark2mqtt/issues/3)) | |
+A growing list of models confirmed working in the wild lives in [CONFIRMED_MODELS.md](CONFIRMED_MODELS.md). Other SharkNinja robot vacuums likely work too -- the list reflects what's been reported, not the limit of what's supported. If your model isn't on it, please let me know.
 
 ## Quick Start
 
