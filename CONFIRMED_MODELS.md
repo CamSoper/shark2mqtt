@@ -2,7 +2,7 @@
 
 **Thank you.** Seriously. Every entry on this list exists because somebody took the time to plug in their vacuum, run shark2mqtt, and then come back to tell me it worked. That feedback is gold. It's the only way I find out which models behave like mine and which ones have their own quirks -- I only own two robots, so without these reports I'd be flying blind.
 
-If your model isn't listed and shark2mqtt works for you, please drop a note on [issue #10](https://github.com/CamSoper/shark2mqtt/issues/10) (or open a new issue with the "confirmed working" tag) so I can add you to the list. Model number, region, and any quirks you noticed are all I need. You absolutely do not have to open a PR for this -- a one-line comment is plenty.
+If your model isn't listed and shark2mqtt works for you, please drop a note on [issue #10](https://github.com/CamSoper/shark2mqtt/issues/10) so I can add you to the list. Model number, region, and any quirks you noticed are all I need. You can also just submit a PR adding yourself to this list.
 
 Other SharkNinja robot vacuums likely work too. This list reflects what's been reported in the wild, not the limit of what's supported.
 
