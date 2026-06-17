@@ -293,13 +293,15 @@ class SkegoxApi:
         logger.info("Set %s=%s on %s", property_name, value, snd)
 
     async def send_command(self, snd: str, command: str) -> None:
-        """Send a vacuum command (start, stop, pause, return, locate)."""
+        """Send a vacuum command (start, stop, pause, return, locate, mop)."""
         command_map = {
             "start": ("Operating_Mode", 2),
             "stop": ("Operating_Mode", 0),
             "pause": ("Operating_Mode", 1),
             "return_to_base": ("Operating_Mode", 3),
             "locate": ("Find_Device", 1),
+            "mop": ("Operating_Mode", 7),
+            "vacuum_and_mop": ("Operating_Mode", 8),
         }
         if command not in command_map:
             logger.warning("Unknown command: %s", command)

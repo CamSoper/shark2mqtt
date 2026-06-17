@@ -445,7 +445,14 @@ class MqttClient:
                           clean_count: 1, clean_type: "dry"}
         """
         import json as _json
-        data = _json.loads(payload)
+        # HA may publish the command as raw JSON ({"command": "..."}) or as a
+        # plain command string (e.g. "vacuum_and_mop"). Accept both.
+        try:
+            data = _json.loads(payload)
+        except (_json.JSONDecodeError, TypeError):
+            data = {"command": payload.strip(), "params": {}}
+        if not isinstance(data, dict):
+            data = {"command": str(data).strip(), "params": {}}
         logger.debug("send_command raw data: %r", data)
         command = data.get("command", "")
         params = data.get("params", data.get("param", {}))
