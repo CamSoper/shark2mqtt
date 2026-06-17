@@ -26,3 +26,5 @@ Other SharkNinja robot vacuums likely work too. This list reflects what's been r
 | AV2870ZEUS | US | James Little (via email) | Firmware `V0.0.32-3d-20250714V6.6.1` |
 | AV301WXEUK | EU | [@Adouken](https://github.com/Adouken) | Works with both wet and dry commands
 | UR26503CUS | US | [@smacdmac101](https://github.com/smacdmac101) | Two units tested; eco and normal fan speeds appear reversed |
+| AV2510SYUS | US | [@munsterlander](https://github.com/munsterlander) ([#15](https://github.com/CamSoper/shark2mqtt/issues/15)) | |
+| RV2610WZUS | US | [@nerzki](https://github.com/nerzki) ([#15](https://github.com/CamSoper/shark2mqtt/issues/15)) | |
