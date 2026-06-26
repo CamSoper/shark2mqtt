@@ -259,6 +259,9 @@ class SharkAuth:
                 await page.goto(authorize_url, wait_until="domcontentloaded")
 
                 auth_error: Exception | None = None
+                # Tracks how far the flow got, so a failure can report whether
+                # the email or the password was rejected.
+                auth_step = "email"
                 try:
                     # Fill email — Auth0 uses a multi-step flow
                     username_input = page.locator(
@@ -299,6 +302,9 @@ class SharkAuth:
                         'input[name="password"], input[type="password"]'
                     ).locator("visible=true").first
                     await password_input.wait_for(state="visible", timeout=30000)
+                    # Password field appeared, so the email was accepted.
+                    # A failure from here on is a rejected password, not email.
+                    auth_step = "password"
                     await password_input.fill(self._config.shark_password)
 
                     # Submit password via Enter key (more reliable than button click)
@@ -323,7 +329,23 @@ class SharkAuth:
 
                 except Exception as exc:
                     auth_error = exc
-                    # Screenshot while page is still alive
+                    # Scrape any visible Auth0 error and note which step we
+                    # reached, then screenshot — all while the page is alive.
+                    # This turns an opaque timeout into a self-diagnosing log
+                    # line (e.g. a rejected email vs. a rejected password).
+                    page_error = await self._extract_page_error(page)
+                    if page_error:
+                        logger.error(
+                            "Auth0 rejected login at the %s step: %r",
+                            auth_step,
+                            page_error,
+                        )
+                    else:
+                        logger.error(
+                            "Browser auth failed at the %s step "
+                            "(no visible error message on page)",
+                            auth_step,
+                        )
                     await self._save_failure_screenshot(page)
 
             finally:
@@ -366,6 +388,33 @@ class SharkAuth:
         return None
 
     # --- Screenshot helpers ---
+
+    @staticmethod
+    async def _extract_page_error(page: Any) -> str | None:
+        """Scrape the visible Auth0 error message from the login page.
+
+        Auth0's New and Classic Universal Login render validation/credential
+        errors in a handful of known elements. Return the first non-empty
+        message found, or None.
+        """
+        selectors = [
+            'span[id^="error-element-"]',  # New ULP field error
+            ".ulp-input-error-message",  # New ULP field error (alt)
+            '[role="alert"]',  # New ULP page-level alert
+            "span.animated.fadeInUp",  # Classic ULP error text
+            "div.error-cloud",  # Classic ULP error banner
+        ]
+        for selector in selectors:
+            try:
+                loc = page.locator(selector)
+                if await loc.count() == 0:
+                    continue
+                text = (await loc.first.inner_text()).strip()
+                if text:
+                    return text
+            except Exception:
+                continue
+        return None
 
     async def _save_failure_screenshot(self, page: Any) -> None:
         """Save a screenshot on auth failure for debugging."""
