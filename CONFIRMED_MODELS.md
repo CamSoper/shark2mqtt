@@ -28,3 +28,4 @@ Other SharkNinja robot vacuums likely work too. This list reflects what's been r
 | UR26503CUS | US | [@smacdmac101](https://github.com/smacdmac101) | Two units tested; eco and normal fan speeds appear reversed |
 | AV2510SYUS | US | [@munsterlander](https://github.com/munsterlander) ([#15](https://github.com/CamSoper/shark2mqtt/issues/15)) | |
 | RV2610WZUS | US | [@nerzki](https://github.com/nerzki) ([#15](https://github.com/CamSoper/shark2mqtt/issues/15)) | |
+| AV2610BZUS | US | [@AndrewBreyen](https://github.com/AndrewBreyen) ([#21](https://github.com/CamSoper/shark2mqtt/issues/21)) | |
