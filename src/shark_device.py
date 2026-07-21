@@ -190,7 +190,13 @@ class SharkVacuum:
 
     @property
     def is_docked(self) -> bool:
-        return self._get_int_prop(PROP_GET_DOCKED_STATUS) == 1
+        # Charging implies docked: the robot can't charge off the dock,
+        # but skegox can report a stale DockedStatus=0 for days after a
+        # completed return (issue #29).
+        return (
+            self._get_int_prop(PROP_GET_DOCKED_STATUS) == 1
+            or self.is_charging
+        )
 
     @property
     def error_code(self) -> int:

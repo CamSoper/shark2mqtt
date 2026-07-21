@@ -30,6 +30,7 @@ class MqttClient:
         self._clean_modes: dict[str, str] = {}  # device_id -> "Normal" or "Matrix"
         self._fan_speed_overrides: dict[str, str] = {}  # device_id -> user-set speed
         self._published_rooms: dict[str, set[str]] = {}  # device_id -> room slugs
+        self._discovery_sigs: dict[str, str] = {}  # device_id -> last published signature
 
     async def __aenter__(self) -> MqttClient:
         will = aiomqtt.Will(
@@ -69,6 +70,17 @@ class MqttClient:
         dsn = device.dsn
         uid = f"shark2mqtt_{dsn}"
         slug = re.sub(r"[^a-z0-9]+", "_", device.product_name.lower()).strip("_")
+
+        # Discovery configs are retained, so republishing every poll cycle
+        # is pure noise (issue #29). Skip unless something that feeds the
+        # configs (device info or room list) actually changed.
+        sig = json.dumps(
+            {"device": device.device_info, "rooms": device.rooms},
+            sort_keys=True,
+        )
+        if self._discovery_sigs.get(dsn) == sig:
+            logger.debug("Discovery unchanged for %s (%s), skipping", device.product_name, dsn)
+            return
 
         # Vacuum entity
         await self._publish(
@@ -267,6 +279,7 @@ class MqttClient:
             )
             logger.info("Removed stale room button %s for %s", room_slug, dsn)
         self._published_rooms[dsn] = current_room_slugs
+        self._discovery_sigs[dsn] = sig
 
         logger.info("Published HA discovery for %s (%s)", device.product_name, dsn)
 
