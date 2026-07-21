@@ -14,12 +14,23 @@ from .const import (
     PROP_GET_BATTERY_CAPACITY,
     PROP_GET_CHARGING_STATUS,
     PROP_GET_DEVICE_MODEL_NUMBER,
+    PROP_GET_DOCK_ERROR_CODE,
+    PROP_GET_DOCK_KNOB_STATUS,
     PROP_GET_DOCKED_STATUS,
     PROP_GET_ERROR_CODE,
+    PROP_GET_EVACUATE,
+    PROP_GET_EVACUATE_RESUME_STATUS,
+    PROP_GET_EVACUATING,
+    PROP_GET_EXTENDED_ERROR_CODE,
     PROP_GET_OPERATING_MODE,
     PROP_GET_POWER_MODE,
+    PROP_GET_RECOMMEND_RANDR,
+    PROP_GET_REPLACE_BATTERY,
     PROP_GET_ROBOT_FIRMWARE_VERSION,
     PROP_GET_RSSI,
+    PROP_GET_RUN_TIME_CUMULATIVE,
+    PROP_GET_SCHEDULE,
+    PROP_GET_WARNING_CODE,
 )
 
 logger = logging.getLogger(__name__)
@@ -263,6 +274,53 @@ class SharkVacuum:
     def is_online(self) -> bool:
         return self.connection_status == "Online"
 
+    @property
+    def is_evacuating(self) -> bool:
+        """Self-empty dock is actively emptying the bin."""
+        return self._get_int_prop(PROP_GET_EVACUATING) == 1
+
+    @property
+    def evacuate_state(self) -> int:
+        return self._get_int_prop(PROP_GET_EVACUATE)
+
+    @property
+    def evacuate_resume_status(self) -> bool:
+        return self._get_int_prop(PROP_GET_EVACUATE_RESUME_STATUS) == 1
+
+    @property
+    def dock_error_code(self) -> int:
+        return self._get_int_prop(PROP_GET_DOCK_ERROR_CODE)
+
+    @property
+    def dock_knob_status(self) -> int:
+        return self._get_int_prop(PROP_GET_DOCK_KNOB_STATUS)
+
+    @property
+    def warning_code(self) -> int:
+        """Separate warning channel from error_code — non-fatal conditions."""
+        return self._get_int_prop(PROP_GET_WARNING_CODE)
+
+    @property
+    def extended_error_code(self) -> str:
+        return str(self._get_prop(PROP_GET_EXTENDED_ERROR_CODE, "") or "")
+
+    @property
+    def run_time_cumulative(self) -> int:
+        return self._get_int_prop(PROP_GET_RUN_TIME_CUMULATIVE)
+
+    @property
+    def replace_battery(self) -> bool:
+        return self._get_int_prop(PROP_GET_REPLACE_BATTERY) == 1
+
+    @property
+    def recommend_rest_and_recharge(self) -> bool:
+        return self._get_int_prop(PROP_GET_RECOMMEND_RANDR) == 1
+
+    @property
+    def schedule(self) -> dict[str, Any] | None:
+        val = self._get_prop(PROP_GET_SCHEDULE)
+        return val if isinstance(val, dict) and val else None
+
     # --- MQTT payloads ---
 
     def to_state_payload(self) -> dict[str, Any]:
@@ -284,10 +342,22 @@ class SharkVacuum:
             "is_docked": self.is_docked,
             "firmware_version": self.firmware_version,
             "model_number": self.model_number,
+            "is_evacuating": self.is_evacuating,
+            "evacuate_state": self.evacuate_state,
+            "evacuate_resume_status": self.evacuate_resume_status,
+            "dock_error_code": self.dock_error_code,
+            "dock_knob_status": self.dock_knob_status,
+            "warning_code": self.warning_code,
+            "extended_error_code": self.extended_error_code,
+            "run_time_cumulative": self.run_time_cumulative,
+            "replace_battery": self.replace_battery,
+            "recommend_rest_and_recharge": self.recommend_rest_and_recharge,
         }
         if self.rooms:
             attrs["rooms"] = self.rooms
             attrs["floor_id"] = self.floor_id
+        if self.schedule:
+            attrs["schedule"] = self.schedule
         return attrs
 
     @property

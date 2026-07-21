@@ -208,6 +208,126 @@ class MqttClient:
             retain=True,
         )
 
+        # Emptying bin binary sensor (self-empty dock actively evacuating)
+        await self._publish(
+            f"{HA_DISCOVERY_PREFIX}/binary_sensor/{uid}_evacuating/config",
+            {
+                "name": "Emptying Bin",
+                "unique_id": f"{uid}_evacuating",
+                "object_id": f"{slug}_evacuating",
+                "state_topic": f"{self._prefix}/{dsn}/attributes",
+                "value_template": "{{ value_json.is_evacuating }}",
+                "payload_on": True,
+                "payload_off": False,
+                "device_class": "running",
+                "availability_topic": f"{self._prefix}/{dsn}/available",
+                "payload_available": "online",
+                "payload_not_available": "offline",
+                "device": device.device_info,
+            },
+            retain=True,
+        )
+
+        # Warning binary sensor (separate channel from Error_Code)
+        await self._publish(
+            f"{HA_DISCOVERY_PREFIX}/binary_sensor/{uid}_warning/config",
+            {
+                "name": "Warning",
+                "unique_id": f"{uid}_warning",
+                "object_id": f"{slug}_warning",
+                "state_topic": f"{self._prefix}/{dsn}/attributes",
+                "value_template": "{{ value_json.warning_code != 0 }}",
+                "payload_on": True,
+                "payload_off": False,
+                "device_class": "problem",
+                "entity_category": "diagnostic",
+                "availability_topic": f"{self._prefix}/{dsn}/available",
+                "payload_available": "online",
+                "payload_not_available": "offline",
+                "device": device.device_info,
+            },
+            retain=True,
+        )
+
+        # Dock error code sensor
+        await self._publish(
+            f"{HA_DISCOVERY_PREFIX}/sensor/{uid}_dock_error/config",
+            {
+                "name": "Dock Error Code",
+                "unique_id": f"{uid}_dock_error",
+                "object_id": f"{slug}_dock_error",
+                "state_topic": f"{self._prefix}/{dsn}/attributes",
+                "value_template": "{{ value_json.dock_error_code }}",
+                "entity_category": "diagnostic",
+                "icon": "mdi:home-alert-outline",
+                "availability_topic": f"{self._prefix}/{dsn}/available",
+                "payload_available": "online",
+                "payload_not_available": "offline",
+                "device": device.device_info,
+            },
+            retain=True,
+        )
+
+        # Lifetime runtime sensor (unit unconfirmed upstream, exposed raw)
+        await self._publish(
+            f"{HA_DISCOVERY_PREFIX}/sensor/{uid}_runtime/config",
+            {
+                "name": "Total Runtime",
+                "unique_id": f"{uid}_runtime",
+                "object_id": f"{slug}_runtime",
+                "state_topic": f"{self._prefix}/{dsn}/attributes",
+                "value_template": "{{ value_json.run_time_cumulative }}",
+                "entity_category": "diagnostic",
+                "icon": "mdi:history",
+                "availability_topic": f"{self._prefix}/{dsn}/available",
+                "payload_available": "online",
+                "payload_not_available": "offline",
+                "device": device.device_info,
+            },
+            retain=True,
+        )
+
+        # Maintenance binary sensors
+        await self._publish(
+            f"{HA_DISCOVERY_PREFIX}/binary_sensor/{uid}_replace_battery/config",
+            {
+                "name": "Replace Battery",
+                "unique_id": f"{uid}_replace_battery",
+                "object_id": f"{slug}_replace_battery",
+                "state_topic": f"{self._prefix}/{dsn}/attributes",
+                "value_template": "{{ value_json.replace_battery }}",
+                "payload_on": True,
+                "payload_off": False,
+                "device_class": "problem",
+                "entity_category": "diagnostic",
+                "availability_topic": f"{self._prefix}/{dsn}/available",
+                "payload_available": "online",
+                "payload_not_available": "offline",
+                "device": device.device_info,
+            },
+            retain=True,
+        )
+
+        await self._publish(
+            f"{HA_DISCOVERY_PREFIX}/binary_sensor/{uid}_recommend_randr/config",
+            {
+                "name": "Recommend Rest And Recharge",
+                "unique_id": f"{uid}_recommend_randr",
+                "object_id": f"{slug}_recommend_randr",
+                "state_topic": f"{self._prefix}/{dsn}/attributes",
+                "value_template": "{{ value_json.recommend_rest_and_recharge }}",
+                "payload_on": True,
+                "payload_off": False,
+                "device_class": "problem",
+                "entity_category": "diagnostic",
+                "availability_topic": f"{self._prefix}/{dsn}/available",
+                "payload_available": "online",
+                "payload_not_available": "offline",
+                "device": device.device_info,
+            },
+            retain=True,
+        )
+
         # Device trigger for error events (fires in HA automation UI)
         await self._publish(
             f"{HA_DISCOVERY_PREFIX}/device_automation/{uid}_error_trigger/config",
