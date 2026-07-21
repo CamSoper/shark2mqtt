@@ -92,6 +92,24 @@ docker compose run --rm shark2mqtt --auth-once
 
 This authenticates, lists discovered vacuums, saves tokens, and exits.
 
+### If the "Verify you are human" challenge never passes
+
+Cloudflare's bot detection occasionally flags the automated browser on some hosts or networks, leaving the Turnstile checkbox unchecked forever (with a red validation border in the failure screenshot). If you've hit this, you can bootstrap tokens on a different machine and copy them over:
+
+1. On a desktop or laptop (ideally on a different network, e.g. your main PC rather than the server), clone this repo and run the auth flow once:
+
+   ```bash
+   docker compose run --rm shark2mqtt --auth-once
+   ```
+
+2. Copy `shark2mqtt_tokens.json` from that machine's `/data` volume into the `/data` volume on your server.
+
+3. Start the service normally. It will use the saved refresh token and skip the browser flow entirely.
+
+The refresh token is long-lived, so once you have a working `shark2mqtt_tokens.json` the browser flow shouldn't be needed again unless SharkNinja revokes the session (e.g. after a password change).
+
+Repeated failed attempts can temporarily lock your SharkNinja account, so if the challenge is failing, stop the retry loop (set restart policy to `no` or use `--auth-once`) before trying again.
+
 ## Home Assistant Entities
 
 Each vacuum is automatically discovered by Home Assistant with the following entities:
