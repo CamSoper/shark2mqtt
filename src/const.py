@@ -146,4 +146,5 @@ ERROR_CODES: dict[int, str] = {
     24: "Critical low battery",
     26: "Dustbin blockage",
     40: "Dustbin is blocked",
+    48: "Mop pad missing",  # reported on RV2820YEUS (issue #27)
 }
