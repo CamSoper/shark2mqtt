@@ -23,9 +23,15 @@ Other SharkNinja robot vacuums likely work too. This list reflects what's been r
 | AV251WAYUS | US | [@emann3](https://github.com/emann3) ([#10](https://github.com/CamSoper/shark2mqtt/issues/10)) | |
 | RV2820ZEUS (vac/mop) | US | [@emann3](https://github.com/emann3) ([#10](https://github.com/CamSoper/shark2mqtt/issues/10)) | |
 | RV750R01US | US | [@rmiles7721](https://github.com/rmiles7721) ([#10](https://github.com/CamSoper/shark2mqtt/issues/10)) | |
-| AV2870ZEUS | US | James Little (via email) | Firmware `V0.0.32-3d-20250714V6.6.1` |
+| AV2870ZEUS | US | [@deftones064](https://github.com/deftones064) ([#10](https://github.com/CamSoper/shark2mqtt/issues/10)) | Firmware `V0.0.32-3d-20250714V6.6.1` |
 | AV301WXEUK | EU | [@Adouken](https://github.com/Adouken) | Works with both wet and dry commands
 | UR26503CUS | US | [@smacdmac101](https://github.com/smacdmac101) | Two units tested; eco and normal fan speeds appear reversed |
 | AV2510SYUS | US | [@munsterlander](https://github.com/munsterlander) ([#15](https://github.com/CamSoper/shark2mqtt/issues/15)) | |
 | RV2610WZUS | US | [@nerzki](https://github.com/nerzki) ([#15](https://github.com/CamSoper/shark2mqtt/issues/15)) | |
 | AV2610BZUS | US | [@AndrewBreyen](https://github.com/AndrewBreyen) ([#21](https://github.com/CamSoper/shark2mqtt/issues/21)) | |
+| RV300WXEUK | EU | [@guyank](https://github.com/guyank) ([#10](https://github.com/CamSoper/shark2mqtt/issues/10)) | |
+| UR1300S3US | US | [@rene-aguirre](https://github.com/rene-aguirre) ([#10](https://github.com/CamSoper/shark2mqtt/issues/10)) | Costco model |
+| UR235BCDUS | US | [@johnluetke](https://github.com/johnluetke) ([#10](https://github.com/CamSoper/shark2mqtt/issues/10)) | |
+| RV2310CDUS | US | [@dewbot6](https://github.com/dewbot6) ([#10](https://github.com/CamSoper/shark2mqtt/issues/10)) | |
+| RV2910XEUS (Shark PowerDetect) | US | [@firedino1234](https://github.com/firedino1234) ([#10](https://github.com/CamSoper/shark2mqtt/issues/10)) | State stays Idle / `operating_mode: unknown` during active cleaning; updates correctly on return to base |
+| RV2920XEUS (PowerDetect ThermaCharged 2-in-1) | US | [@alvaropiaggio-gif](https://github.com/alvaropiaggio-gif) ([#10](https://github.com/CamSoper/shark2mqtt/issues/10)) | Water level not exposed (persistent global setting on the robot) |
