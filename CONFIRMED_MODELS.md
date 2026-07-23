@@ -29,3 +29,9 @@ Other SharkNinja robot vacuums likely work too. This list reflects what's been r
 | AV2510SYUS | US | [@munsterlander](https://github.com/munsterlander) ([#15](https://github.com/CamSoper/shark2mqtt/issues/15)) | |
 | RV2610WZUS | US | [@nerzki](https://github.com/nerzki) ([#15](https://github.com/CamSoper/shark2mqtt/issues/15)) | |
 | AV2610BZUS | US | [@AndrewBreyen](https://github.com/AndrewBreyen) ([#21](https://github.com/CamSoper/shark2mqtt/issues/21)) | |
+| RV300WXEUK | EU | [@guyank](https://github.com/guyank) ([#10](https://github.com/CamSoper/shark2mqtt/issues/10)) | |
+| UR1300S3US | US | [@rene-aguirre](https://github.com/rene-aguirre) ([#10](https://github.com/CamSoper/shark2mqtt/issues/10)) | Costco model |
+| UR235BCDUS | US | [@johnluetke](https://github.com/johnluetke) ([#10](https://github.com/CamSoper/shark2mqtt/issues/10)) | |
+| RV2310CDUS | US | [@dewbot6](https://github.com/dewbot6) ([#10](https://github.com/CamSoper/shark2mqtt/issues/10)) | |
+| RV2910XEUS (Shark PowerDetect) | US | [@firedino1234](https://github.com/firedino1234) ([#10](https://github.com/CamSoper/shark2mqtt/issues/10)) | State stays Idle / `operating_mode: unknown` during active cleaning; updates correctly on return to base |
+| RV2920XEUS (PowerDetect ThermaCharged 2-in-1) | US | [@alvaropiaggio-gif](https://github.com/alvaropiaggio-gif) ([#10](https://github.com/CamSoper/shark2mqtt/issues/10)) | Water level not exposed (persistent global setting on the robot) |
