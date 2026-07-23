@@ -47,6 +47,54 @@ class TestDockedState:
         assert vac.ha_state == "cleaning"
 
 
+class TestDockAndMaintenanceProperties:
+    def test_defaults_when_absent(self):
+        vac = make_vacuum()
+        assert vac.is_evacuating is False
+        assert vac.evacuate_state == 0
+        assert vac.evacuate_resume_status is False
+        assert vac.dock_error_code == 0
+        assert vac.dock_knob_status == 0
+        assert vac.warning_code == 0
+        assert vac.extended_error_code == ""
+        assert vac.run_time_cumulative == 0
+        assert vac.replace_battery is False
+        assert vac.recommend_rest_and_recharge is False
+        assert vac.schedule is None
+
+    def test_reads_reported_values(self):
+        data = make_skegox_device()
+        reported = data["shadow"]["properties"]["reported"]
+        reported["Evacuating"] = {"value": True}
+        reported["DockErrorCode"] = {"value": 3}
+        reported["Warning_Code"] = {"value": 7}
+        reported["Extended_Error_Code"] = {"value": "E-42"}
+        reported["RunTimeCumulative"] = {"value": 117}
+        reported["ReplaceBattery"] = {"value": True}
+        reported["Schedule"] = {"value": {"Monday": {"value": []}}}
+        vac = SharkVacuum.from_skegox(data)
+
+        assert vac.is_evacuating is True
+        assert vac.dock_error_code == 3
+        assert vac.warning_code == 7
+        assert vac.extended_error_code == "E-42"
+        assert vac.run_time_cumulative == 117
+        assert vac.replace_battery is True
+        assert vac.schedule == {"Monday": {"value": []}}
+
+    def test_attributes_payload_includes_new_fields(self):
+        vac = make_vacuum()
+        attrs = vac.to_attributes_payload()
+        for key in (
+            "is_evacuating", "evacuate_state", "evacuate_resume_status",
+            "dock_error_code", "dock_knob_status", "warning_code",
+            "extended_error_code", "run_time_cumulative", "replace_battery",
+            "recommend_rest_and_recharge",
+        ):
+            assert key in attrs
+        assert "schedule" not in attrs  # omitted when empty
+
+
 class TestDiscoveryDedup:
     @pytest.fixture
     def client(self, mock_config):
