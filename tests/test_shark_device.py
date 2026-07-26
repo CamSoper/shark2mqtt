@@ -89,10 +89,38 @@ class TestDockAndMaintenanceProperties:
             "is_evacuating", "evacuate_state", "evacuate_resume_status",
             "dock_error_code", "dock_knob_status", "warning_code",
             "extended_error_code", "run_time_cumulative", "replace_battery",
-            "recommend_rest_and_recharge",
+            "recommend_rest_and_recharge", "water_flow",
         ):
             assert key in attrs
         assert "schedule" not in attrs  # omitted when empty
+
+
+class TestWaterFlow:
+    """Mop water flow level — mirrors Power_Mode's 0/1/2 eco/normal/max scale."""
+
+    def test_defaults_to_normal_when_absent(self):
+        vac = make_vacuum()
+        assert vac.flow_mode is None
+        assert vac.water_flow == "normal"
+
+    def test_reads_flow_mode_max(self):
+        data = make_skegox_device()
+        data["shadow"]["properties"]["reported"]["Flow_Mode"] = {"value": 2}
+        vac = SharkVacuum.from_skegox(data)
+        assert vac.water_flow == "max"
+
+    def test_reads_flow_mode_eco(self):
+        data = make_skegox_device()
+        data["shadow"]["properties"]["reported"]["Flow_Mode"] = {"value": 0}
+        vac = SharkVacuum.from_skegox(data)
+        assert vac.water_flow == "eco"
+
+    def test_invalid_flow_mode_falls_back_to_normal(self):
+        data = make_skegox_device()
+        data["shadow"]["properties"]["reported"]["Flow_Mode"] = {"value": 99}
+        vac = SharkVacuum.from_skegox(data)
+        assert vac.flow_mode is None
+        assert vac.water_flow == "normal"
 
 
 class TestDiscoveryDedup:

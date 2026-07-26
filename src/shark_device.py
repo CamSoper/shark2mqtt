@@ -22,6 +22,7 @@ from .const import (
     PROP_GET_EVACUATE_RESUME_STATUS,
     PROP_GET_EVACUATING,
     PROP_GET_EXTENDED_ERROR_CODE,
+    PROP_GET_FLOW_MODE,
     PROP_GET_OPERATING_MODE,
     PROP_GET_POWER_MODE,
     PROP_GET_RECOMMEND_RANDR,
@@ -257,6 +258,24 @@ class SharkVacuum:
         return POWER_MODE_NAMES.get(mode, "normal")
 
     @property
+    def flow_mode(self) -> PowerMode | None:
+        """Mop water flow level (vac+mop combo models). Same 0/1/2 scale
+        as power_mode (eco/normal/max); confirmed against the SharkClean
+        app's "Water Flow Level" slider."""
+        val = self._get_int_prop(PROP_GET_FLOW_MODE, -1)
+        try:
+            return PowerMode(val)
+        except ValueError:
+            return None
+
+    @property
+    def water_flow(self) -> str:
+        mode = self.flow_mode
+        if mode is None:
+            return "normal"
+        return POWER_MODE_NAMES.get(mode, "normal")
+
+    @property
     def rssi(self) -> int:
         # Some models report RSSI as positive, others as negative dBm.
         # Real WiFi RSSI is always ≤ 0 dBm, so normalize to negative.
@@ -352,6 +371,7 @@ class SharkVacuum:
             "run_time_cumulative": self.run_time_cumulative,
             "replace_battery": self.replace_battery,
             "recommend_rest_and_recharge": self.recommend_rest_and_recharge,
+            "water_flow": self.water_flow,
         }
         if self.rooms:
             attrs["rooms"] = self.rooms

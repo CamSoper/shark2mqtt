@@ -318,6 +318,21 @@ class SkegoxApi:
             return
         await self.set_desired_property(snd, "Power_Mode", val)
 
+    async def set_water_flow(self, snd: str, level: str) -> None:
+        """Set mop water flow level (eco, normal, max).
+
+        Same 0/1/2 scale as Power_Mode; confirmed against the SharkClean
+        app's "Water Flow Level" slider on a vacuum+mop combo model
+        (RV2820YEUS). Only applies to devices with a mop tank — devices
+        without Flow_Mode in their shadow will just no-op the PATCH.
+        """
+        speed_map = {"eco": 0, "normal": 1, "max": 2}
+        val = speed_map.get(level.lower())
+        if val is None:
+            logger.warning("Unknown water flow level: %s", level)
+            return
+        await self.set_desired_property(snd, "Flow_Mode", val)
+
     async def clean_rooms(
         self,
         snd: str,

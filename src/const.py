@@ -124,11 +124,16 @@ PROP_GET_RUN_TIME_CUMULATIVE = "GET_RunTimeCumulative"
 PROP_GET_REPLACE_BATTERY = "GET_ReplaceBattery"
 PROP_GET_RECOMMEND_RANDR = "GET_RecommendRandR"
 PROP_GET_SCHEDULE = "GET_Schedule"
+# Mop water flow level (vacuum+mop combo models). Shares the same 0/1/2
+# eco/normal/max scale as Power_Mode — confirmed against the SharkClean
+# app's "Water Flow Level" slider on a RV2820YEUS unit.
+PROP_GET_FLOW_MODE = "GET_Flow_Mode"
 
 # Write properties (used with POST /datapoints.json)
 PROP_SET_OPERATING_MODE = "SET_Operating_Mode"
 PROP_SET_POWER_MODE = "SET_Power_Mode"
 PROP_SET_FIND_DEVICE = "SET_Find_Device"
+PROP_SET_FLOW_MODE = "SET_Flow_Mode"
 
 # Error code descriptions
 # Sources: sharkiqlibs/sharkiq, ayla-iot-unofficial, Hubitat SharkIQ driver,

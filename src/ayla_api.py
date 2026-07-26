@@ -22,6 +22,7 @@ from tenacity import (
 from .const import (
     POWER_MODE_BY_NAME,
     PROP_SET_FIND_DEVICE,
+    PROP_SET_FLOW_MODE,
     PROP_SET_OPERATING_MODE,
     PROP_SET_POWER_MODE,
     REGIONS,
@@ -566,6 +567,18 @@ class AylaApi:
             logger.warning("Unknown fan speed: %s", speed)
             return
         await self.set_device_property(dsn, PROP_SET_POWER_MODE, int(mode))
+
+    async def set_water_flow(self, dsn: str, level: str) -> None:
+        """Set mop water flow level via Ayla property datapoint.
+
+        Same 0/1/2 scale as Power_Mode; only applies to vac+mop combo
+        models with Flow_Mode in their shadow.
+        """
+        mode = POWER_MODE_BY_NAME.get(level)
+        if mode is None:
+            logger.warning("Unknown water flow level: %s", level)
+            return
+        await self.set_device_property(dsn, PROP_SET_FLOW_MODE, int(mode))
 
     async def clean_rooms(
         self,

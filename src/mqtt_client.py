@@ -108,6 +108,28 @@ class MqttClient:
             retain=True,
         )
 
+        # Water flow level select (mop water flow — vac+mop combo models
+        # only; harmless no-op on the device for vac-only models since we
+        # simply won't have a truthy water_flow attribute to key off of).
+        await self._publish(
+            f"{HA_DISCOVERY_PREFIX}/select/{uid}_water_flow/config",
+            {
+                "name": "Water Flow Level",
+                "unique_id": f"{uid}_water_flow",
+                "object_id": f"{slug}_water_flow",
+                "command_topic": f"{self._prefix}/{dsn}/set_water_flow",
+                "state_topic": f"{self._prefix}/{dsn}/attributes",
+                "value_template": "{{ value_json.water_flow }}",
+                "options": ["eco", "normal", "max"],
+                "icon": "mdi:water-percent",
+                "availability_topic": f"{self._prefix}/{dsn}/available",
+                "payload_available": "online",
+                "payload_not_available": "offline",
+                "device": device.device_info,
+            },
+            retain=True,
+        )
+
         # Battery sensor
         await self._publish(
             f"{HA_DISCOVERY_PREFIX}/sensor/{uid}_battery/config",
@@ -469,6 +491,7 @@ class MqttClient:
 
         await self._client.subscribe(f"{self._prefix}/+/command")
         await self._client.subscribe(f"{self._prefix}/+/set_fan_speed")
+        await self._client.subscribe(f"{self._prefix}/+/set_water_flow")
         await self._client.subscribe(f"{self._prefix}/+/send_command")
         await self._client.subscribe(f"{self._prefix}/+/clean_room")
         await self._client.subscribe(f"{self._prefix}/+/clean_mode")
@@ -495,6 +518,10 @@ class MqttClient:
                     logger.info("Fan speed received: %s for %s", speed, device_id)
                     self._fan_speed_overrides[device_id] = speed
                     await command_handler.set_fan_speed(device_id, speed)
+                elif topic.endswith("/set_water_flow"):
+                    level = payload.strip().lower()
+                    logger.info("Water flow level received: %s for %s", level, device_id)
+                    await command_handler.set_water_flow(device_id, level)
                 elif topic.endswith("/send_command"):
                     logger.info("send_command received for %s", device_id)
                     await self._handle_send_command(
