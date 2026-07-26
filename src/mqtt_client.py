@@ -29,6 +29,7 @@ class MqttClient:
         self._client: aiomqtt.Client | None = None
         self._clean_modes: dict[str, str] = {}  # device_id -> "Normal" or "Matrix"
         self._fan_speed_overrides: dict[str, str] = {}  # device_id -> user-set speed
+        self._water_flow_overrides: dict[str, str] = {}  # device_id -> user-set flow level
         self._published_rooms: dict[str, set[str]] = {}  # device_id -> room slugs
         self._discovery_sigs: dict[str, str] = {}  # device_id -> last published signature
 
@@ -443,8 +444,13 @@ class MqttClient:
         if device.is_docked and dsn in self._fan_speed_overrides:
             state_payload["fan_speed"] = self._fan_speed_overrides[dsn]
 
+        attributes_payload = device.to_attributes_payload()
+        # Same dock-reports-eco quirk applies to water_flow (mop flow level).
+        if device.is_docked and dsn in self._water_flow_overrides:
+            attributes_payload["water_flow"] = self._water_flow_overrides[dsn]
+
         await self._publish(f"{self._prefix}/{dsn}/state", state_payload, retain=True)
-        await self._publish(f"{self._prefix}/{dsn}/attributes", device.to_attributes_payload(), retain=True)
+        await self._publish(f"{self._prefix}/{dsn}/attributes", attributes_payload, retain=True)
         await self._publish(f"{self._prefix}/{dsn}/available", available, retain=True)
 
         # Fire error event if error_code changed to non-zero
@@ -521,6 +527,7 @@ class MqttClient:
                 elif topic.endswith("/set_water_flow"):
                     level = payload.strip().lower()
                     logger.info("Water flow level received: %s for %s", level, device_id)
+                    self._water_flow_overrides[device_id] = level
                     await command_handler.set_water_flow(device_id, level)
                 elif topic.endswith("/send_command"):
                     logger.info("send_command received for %s", device_id)

@@ -123,6 +123,51 @@ class TestWaterFlow:
         assert vac.water_flow == "normal"
 
 
+class TestWaterFlowOverrideWhileDocked:
+    """Mirrors the fan_speed override: hardware reports eco while docked,
+    so the last user-set value should be substituted in the published
+    attributes, same as the existing fan_speed override for state."""
+
+    @pytest.fixture
+    def client(self, mock_config):
+        client = MqttClient(mock_config)
+        client._publish = AsyncMock()
+        return client
+
+    @pytest.mark.asyncio
+    async def test_no_override_uses_device_reported_value(self, client):
+        vac = make_vacuum(docked_status=1)
+        await client.publish_state(vac)
+        attrs_call = [
+            c for c in client._publish.call_args_list
+            if c.args[0].endswith("/attributes")
+        ][0]
+        assert attrs_call.args[1]["water_flow"] == "normal"  # no Flow_Mode set
+
+    @pytest.mark.asyncio
+    async def test_override_applied_while_docked(self, client):
+        vac = make_vacuum(docked_status=1)
+        client._water_flow_overrides[vac.dsn] = "max"
+        await client.publish_state(vac)
+        attrs_call = [
+            c for c in client._publish.call_args_list
+            if c.args[0].endswith("/attributes")
+        ][0]
+        assert attrs_call.args[1]["water_flow"] == "max"
+
+    @pytest.mark.asyncio
+    async def test_no_override_when_not_docked(self, client):
+        vac = make_vacuum(operating_mode=2, docked_status=0, charging_status=0)
+        client._water_flow_overrides[vac.dsn] = "max"
+        await client.publish_state(vac)
+        attrs_call = [
+            c for c in client._publish.call_args_list
+            if c.args[0].endswith("/attributes")
+        ][0]
+        # Not docked -> trust the device's own reported value, not the override
+        assert attrs_call.args[1]["water_flow"] == "normal"
+
+
 class TestDiscoveryDedup:
     @pytest.fixture
     def client(self, mock_config):
