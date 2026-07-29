@@ -129,8 +129,8 @@ class SharkAuth:
                 await self._refresh_auth0_token()
                 self._consecutive_failures = 0
                 return self._tokens.auth0_id_token  # type: ignore[return-value]
-            except SharkAuthError:
-                logger.warning("Auth0 refresh_token grant failed")
+            except SharkAuthError as e:
+                logger.warning("Auth0 refresh_token grant failed: %s", e)
 
         # Step 3: Try browser auth
         try:
@@ -255,14 +255,21 @@ class SharkAuth:
                 cdp.on("Network.requestWillBeSent", _on_cdp_request)
                 await cdp.send("Network.enable")
 
-                # Navigate to Auth0 authorize
-                await page.goto(authorize_url, wait_until="domcontentloaded")
-
                 auth_error: Exception | None = None
                 # Tracks how far the flow got, so a failure can report whether
-                # the email or the password was rejected.
-                auth_step = "email"
+                # navigation itself failed, or the email/password was rejected.
+                auth_step = "navigate"
                 try:
+                    # Navigate to Auth0 authorize. Kept inside this try (not
+                    # before it) so a navigation failure — e.g. the login
+                    # page not loading at all, as opposed to the Turnstile
+                    # checkbox getting stuck — still gets a screenshot and
+                    # becomes a SharkAuthError, so it properly trips the
+                    # circuit breaker instead of escaping as a raw
+                    # patchright/Playwright exception that bypasses backoff.
+                    await page.goto(authorize_url, wait_until="domcontentloaded")
+                    auth_step = "email"
+
                     # Fill email — Auth0 uses a multi-step flow
                     username_input = page.locator(
                         'input[name="username"], input[type="email"]'
