@@ -59,7 +59,8 @@ class OperatingMode(IntEnum):
     START = 2
     RETURN = 3
     EXPLORE = 4
-    # Modes 5-6 unknown
+    # Mode 5 still unknown
+    ROOM_CLEAN = 6  # room/area clean (observed on RV2820ZECA)
     MOP = 7
     VACUUM_AND_MOP = 8
 
@@ -79,6 +80,7 @@ OPERATING_MODE_TO_HA_STATE: dict[OperatingMode, str] = {
     OperatingMode.START: "cleaning",
     OperatingMode.RETURN: "returning",
     OperatingMode.EXPLORE: "cleaning",
+    OperatingMode.ROOM_CLEAN: "cleaning",
     OperatingMode.MOP: "cleaning",
     OperatingMode.VACUUM_AND_MOP: "cleaning",
 }
