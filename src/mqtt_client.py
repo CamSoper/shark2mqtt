@@ -76,7 +76,11 @@ class MqttClient:
         # is pure noise (issue #29). Skip unless something that feeds the
         # configs (device info or room list) actually changed.
         sig = json.dumps(
-            {"device": device.device_info, "rooms": device.rooms},
+            {
+                "device": device.device_info,
+                "rooms": device.rooms,
+                "has_flow_mode": device.has_flow_mode,
+            },
             sort_keys=True,
         )
         if self._discovery_sigs.get(dsn) == sig:
@@ -109,27 +113,37 @@ class MqttClient:
             retain=True,
         )
 
-        # Water flow level select (mop water flow — vac+mop combo models
-        # only; harmless no-op on the device for vac-only models since we
-        # simply won't have a truthy water_flow attribute to key off of).
-        await self._publish(
-            f"{HA_DISCOVERY_PREFIX}/select/{uid}_water_flow/config",
-            {
-                "name": "Water Flow Level",
-                "unique_id": f"{uid}_water_flow",
-                "object_id": f"{slug}_water_flow",
-                "command_topic": f"{self._prefix}/{dsn}/set_water_flow",
-                "state_topic": f"{self._prefix}/{dsn}/attributes",
-                "value_template": "{{ value_json.water_flow }}",
-                "options": ["eco", "normal", "max"],
-                "icon": "mdi:water-percent",
-                "availability_topic": f"{self._prefix}/{dsn}/available",
-                "payload_available": "online",
-                "payload_not_available": "offline",
-                "device": device.device_info,
-            },
-            retain=True,
-        )
+        # Water flow level select — only for models that actually have a mop
+        # tank. Publishing it unconditionally gave vac-only owners a control
+        # that looked real but wrote a property their hardware ignores.
+        if device.has_flow_mode:
+            await self._publish(
+                f"{HA_DISCOVERY_PREFIX}/select/{uid}_water_flow/config",
+                {
+                    "name": "Water Flow Level",
+                    "unique_id": f"{uid}_water_flow",
+                    "object_id": f"{slug}_water_flow",
+                    "command_topic": f"{self._prefix}/{dsn}/set_water_flow",
+                    "state_topic": f"{self._prefix}/{dsn}/attributes",
+                    "value_template": "{{ value_json.water_flow }}",
+                    "options": ["eco", "normal", "max"],
+                    "icon": "mdi:water-percent",
+                    "availability_topic": f"{self._prefix}/{dsn}/available",
+                    "payload_available": "online",
+                    "payload_not_available": "offline",
+                    "device": device.device_info,
+                },
+                retain=True,
+            )
+        else:
+            # Discovery configs are retained, so simply not publishing one
+            # leaves any previously-published entity sitting in HA forever.
+            # An empty retained payload is autodiscovery's delete.
+            await self._publish(
+                f"{HA_DISCOVERY_PREFIX}/select/{uid}_water_flow/config",
+                "",
+                retain=True,
+            )
 
         # Battery sensor
         await self._publish(
@@ -445,8 +459,10 @@ class MqttClient:
             state_payload["fan_speed"] = self._fan_speed_overrides[dsn]
 
         attributes_payload = device.to_attributes_payload()
-        # Same dock-reports-eco quirk applies to water_flow (mop flow level).
-        if device.is_docked and dsn in self._water_flow_overrides:
+        # Same dock-reports-eco quirk applies to water_flow (mop flow level),
+        # but only reinstate the override on models that report the property
+        # at all — otherwise it reintroduces water_flow on vac-only models.
+        if device.has_flow_mode and device.is_docked and dsn in self._water_flow_overrides:
             attributes_payload["water_flow"] = self._water_flow_overrides[dsn]
 
         await self._publish(f"{self._prefix}/{dsn}/state", state_payload, retain=True)

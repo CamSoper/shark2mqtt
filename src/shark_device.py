@@ -142,6 +142,16 @@ class SharkVacuum:
             raw_atc = reported.get("Areas_To_Clean", {})
             def _val(x: Any) -> Any:
                 return x.get("value", x) if isinstance(x, dict) else x
+
+            def _short(x: Any) -> Any:
+                # A few properties carry map URLs, error logs, or whole JSON
+                # blobs. Truncate them so one device's dump stays one
+                # readable line instead of scrolling a terminal off-screen.
+                text = repr(x)
+                if len(text) <= 240:
+                    return x
+                return f"{text[:240]}...<truncated, {len(text)} chars>"
+
             prop_names = sorted(reported.keys())
             hint_keywords = ("room", "area", "zone", "map", "floor")
             hint_props = {
@@ -157,8 +167,15 @@ class SharkVacuum:
                 _val(raw_room_list), _val(raw_v3), _val(raw_v2),
                 _val(raw_atc), vac.floor_id, vac.rooms,
             )
+            # Every reported property with its value. Logging only the names
+            # (as this did originally) meant anyone reporting model-specific
+            # behaviour could confirm a property existed but never say what
+            # it was set to, which stalled issue #27. Values are what make a
+            # bug report actionable, so dump them.
             logger.debug(
-                "Shadow property names for %s: %s", name, prop_names,
+                "Shadow values for %s: %s",
+                name,
+                {k: _short(_val(reported[k])) for k in prop_names},
             )
             logger.debug(
                 "Room/area/zone/map/floor properties for %s: %s",
@@ -294,6 +311,16 @@ class SharkVacuum:
         return POWER_MODE_NAMES.get(mode, "normal")
 
     @property
+    def has_flow_mode(self) -> bool:
+        """Whether this model has a mop tank with a water flow setting.
+
+        Only vac+mop combo models carry Flow_Mode in their shadow. Both
+        backends land properties in `_properties` under the `GET_` name,
+        so this works for skegox and Ayla alike.
+        """
+        return PROP_GET_FLOW_MODE in self._properties
+
+    @property
     def rssi(self) -> int:
         # Some models report RSSI as positive, others as negative dBm.
         # Real WiFi RSSI is always ≤ 0 dBm, so normalize to negative.
@@ -389,8 +416,11 @@ class SharkVacuum:
             "run_time_cumulative": self.run_time_cumulative,
             "replace_battery": self.replace_battery,
             "recommend_rest_and_recharge": self.recommend_rest_and_recharge,
-            "water_flow": self.water_flow,
         }
+        # Vac-only models have no mop tank, so reporting a water flow level
+        # for them would be inventing a setting the hardware doesn't have.
+        if self.has_flow_mode:
+            attrs["water_flow"] = self.water_flow
         if self.rooms:
             attrs["rooms"] = self.rooms
             attrs["floor_id"] = self.floor_id

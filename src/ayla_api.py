@@ -432,9 +432,21 @@ class AylaApi:
                         vacuum._properties.get("GET_Robot_Room_List"),
                         vacuum.floor_id, vacuum.rooms,
                     )
+                    def _short(x: Any) -> Any:
+                        # Map URLs and error logs are long; keep one
+                        # device's dump to one readable line.
+                        text = repr(x)
+                        if len(text) <= 240:
+                            return x
+                        return f"{text[:240]}...<truncated, {len(text)} chars>"
+
+                    # Names alone can't answer "what was this set to?", which
+                    # is the question every model-specific bug report needs
+                    # answered. See issue #27.
                     logger.debug(
-                        "Ayla property names for %s: %s",
-                        vacuum.product_name, sorted_names,
+                        "Ayla property values for %s: %s",
+                        vacuum.product_name,
+                        {k: _short(vacuum._properties.get(k)) for k in sorted_names},
                     )
                     logger.debug(
                         "Ayla room/area/zone/map/floor properties for %s: %s",
