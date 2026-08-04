@@ -197,6 +197,24 @@ class SharkVacuum:
         try:
             return OperatingMode(val)
         except ValueError:
+            # -1 means the property was ABSENT; anything else means it
+            # was present but out-of-enum. Silently returning None here
+            # makes ha_state report `idle`, which is indistinguishable
+            # from a genuinely idle robot.
+            logger.warning(
+                "UNMAPPED_OPERATING_MODE coerced=%r present=%s raw=%r | Operating_Mode_Ex=%r robot_status=%r DockedStatus=%r Charging_Status=%r CleanComplete=%r MissionComplete=%r RunTimeCycle=%r Error_Code=%r",
+                val,
+                PROP_GET_OPERATING_MODE in self._properties,
+                self._properties.get(PROP_GET_OPERATING_MODE, "<ABSENT>"),
+                self._properties.get("GET_Operating_Mode_Ex", "<ABSENT>"),
+                self._properties.get("GET_robot_status", "<ABSENT>"),
+                self._properties.get("GET_DockedStatus", "<ABSENT>"),
+                self._properties.get("GET_Charging_Status", "<ABSENT>"),
+                self._properties.get("GET_CleanComplete", "<ABSENT>"),
+                self._properties.get("GET_MissionComplete", "<ABSENT>"),
+                self._properties.get("GET_RunTimeCycle", "<ABSENT>"),
+                self._properties.get("GET_Error_Code", "<ABSENT>"),
+            )
             return None
 
     @property
