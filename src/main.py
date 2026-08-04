@@ -9,6 +9,8 @@ import signal
 
 from typing import Any
 
+import aiomqtt
+
 from .ayla_api import AylaApi, MardData, debug_dump_mard_structure, parse_mard
 from .config import Settings
 from .exc import SharkAuthError
@@ -18,6 +20,22 @@ from .shark_device import SharkVacuum
 from .skegox_api import SkegoxApi
 
 logger = logging.getLogger("shark2mqtt")
+
+# Broker CONNACK codes that mean "your credentials were refused" rather than
+# "the broker is unreachable". 4/5 are MQTT 3.1.1 CONNACK codes; 134/135 are
+# the MQTT 5 reason codes for the same two conditions.
+_MQTT_AUTH_RCS = frozenset({4, 5, 134, 135})
+
+
+def _is_mqtt_auth_failure(err: aiomqtt.MqttError) -> bool:
+    """Whether an MQTT error is a credential rejection.
+
+    aiomqtt carries the code on `rc`, as a bare int on MQTT 3.1.1 and a
+    paho ReasonCode (which holds the number in `.value`) on MQTT 5, so the
+    number has to be dug out rather than matched in the message text.
+    """
+    rc = getattr(err, "rc", None)
+    return getattr(rc, "value", rc) in _MQTT_AUTH_RCS
 
 
 class CommandRouter:
@@ -334,6 +352,24 @@ async def run(config: Settings) -> None:
 
     except (SystemExit, KeyboardInterrupt):
         logger.info("Shutting down gracefully")
+    except aiomqtt.MqttError as e:
+        # A broker rejection used to surface as a bare aiomqtt traceback,
+        # which reads like a shark2mqtt crash even though authentication
+        # to SharkNinja succeeded and only the MQTT hop failed (issue #40).
+        logger.error(
+            "MQTT broker error (%s:%s): %s",
+            config.mqtt_host, config.mqtt_port, e,
+        )
+        if _is_mqtt_auth_failure(e):
+            logger.error(
+                "The broker rejected the connection as unauthorized. "
+                "MQTT_USERNAME is %s. If the broker requires a login, "
+                "anonymous connections are refused — set MQTT_USERNAME and "
+                "MQTT_PASSWORD to match a broker account.",
+                f"set to {config.mqtt_username!r}"
+                if config.mqtt_username else "not set (connecting anonymously)",
+            )
+        raise SystemExit(1) from e
     finally:
         await api.close()
         await ayla_api.close()

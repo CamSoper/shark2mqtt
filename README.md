@@ -110,6 +110,29 @@ The refresh token is long-lived, so once you have a working `shark2mqtt_tokens.j
 
 Repeated failed attempts can temporarily lock your SharkNinja account, so if the challenge is failing, stop the retry loop (set restart policy to `no` or use `--auth-once`) before trying again.
 
+### If login says "Your account has been locked"
+
+This one is a different animal from the Turnstile problem above, and the message is misleading. The signature is:
+
+- The automated login fails with *"Your account has been locked. Please check your email to log in"*.
+- No lockout email ever arrives (check spam).
+- Logging into [login.sharkninja.com](https://login.sharkninja.com) by hand, in a normal browser, with the same credentials, works immediately.
+- Resetting your password changes nothing -- you get a byte-identical failure screenshot.
+
+That combination means Auth0's risk-based bot detection has flagged the *automated sign-in pattern*, not your account. There is nothing wrong with your credentials and nothing to unlock. Thanks to @dewbot6 for diagnosing this in [#38](https://github.com/CamSoper/shark2mqtt/issues/38).
+
+**What to do:** stop the retry loop and wait it out. Set the restart policy to `no` (or stop the add-on) and leave it alone for several hours -- overnight is a reasonable first attempt. Retrying against an already-flagged pattern tends to extend the block rather than clear it.
+
+While you're waiting, it's worth confirming this isn't just a dead refresh token, which produces a similar "vacuum went unavailable but the app works fine" symptom. Look for this in the logs:
+
+```
+Auth0 refresh_token grant failed: <reason>
+```
+
+The reason is logged as of v1.5.5. An `invalid_grant` there means the saved token was revoked (a password change will do it), in which case you need a fresh browser login rather than a wait -- see the token bootstrap steps above.
+
+If you hit this, please add what you find to [#38](https://github.com/CamSoper/shark2mqtt/issues/38), especially how long the block took to clear. How long the cooldown actually runs is still an open question.
+
 ## Home Assistant Entities
 
 Each vacuum is automatically discovered by Home Assistant with the following entities:
@@ -124,8 +147,9 @@ Each vacuum is automatically discovered by Home Assistant with the following ent
 | `binary_sensor.<name>_error` | Binary Sensor | Error state (on when error present) |
 | `button.<name>_clean_<room>` | Button | One-tap room cleaning (one per room) |
 | `select.<name>_clean_mode` | Select | Normal or Matrix (double-pass) cleaning mode |
+| `select.<name>_water_flow` | Select | Mop water flow level (vac+mop models only) |
 
-Room buttons and the clean mode select appear automatically when room data is available from the Shark cloud.
+Room buttons and the clean mode select appear automatically when room data is available from the Shark cloud. The water flow select appears only on models that report `Flow_Mode` -- i.e. those with a mop tank -- so vacuum-only models won't get a control their hardware ignores.
 
 An error device trigger fires when a new error is detected, usable in HA automations.
 
@@ -206,6 +230,24 @@ data:
 ## Contributing
 
 This project scratches a personal itch — I'm sharing it in case it helps others, not looking to take on a maintenance burden. If something doesn't work for you, please submit a **pull request** rather than an issue. I only own two vacuum models, so I can't test or troubleshoot devices I don't have. PRs with fixes or support for additional models are welcome; issues requesting changes are likely to be closed.
+
+### Capturing a shadow dump
+
+Nearly every model-specific fix here started as a shadow dump from someone else's hardware, so if you're reporting or fixing behaviour on a model I don't own, this is the single most useful thing to include.
+
+Set `LOG_LEVEL=debug` and look for these lines, logged once per poll cycle per device:
+
+```
+Shadow values for <name>: {...}        # skegox backend
+Ayla property values for <name>: {...} # Ayla backend
+```
+
+That's every property the device reports, **with its value**. Long blobs (map URLs, error logs) are truncated so the line stays readable.
+
+Two things worth knowing:
+
+- Some properties only hold their interesting value while a clean is actively assigned. `AreasToClean_V3`, for example, reverts to `*` once the robot docks, so start the clean and capture within the first couple of poll cycles. Setting `POLL_INTERVAL_ACTIVE=5` helps.
+- Dumps contain your DSN, floor IDs, and room names. Redact them before posting.
 
 ## Acknowledgements
 

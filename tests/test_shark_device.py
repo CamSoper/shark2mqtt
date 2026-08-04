@@ -24,6 +24,21 @@ def make_vacuum(
     return SharkVacuum.from_skegox(data)
 
 
+def make_mop_vacuum(
+    flow_mode: int = 1,
+    operating_mode: int = 0,
+    docked_status: int = 1,
+    charging_status: int = 0,
+) -> SharkVacuum:
+    """A vac+mop combo model — i.e. one whose shadow carries Flow_Mode."""
+    data = make_skegox_device(operating_mode=operating_mode)
+    reported = data["shadow"]["properties"]["reported"]
+    reported["DockedStatus"]["value"] = docked_status
+    reported["Charging_Status"]["value"] = charging_status
+    reported["Flow_Mode"] = {"value": flow_mode}
+    return SharkVacuum.from_skegox(data)
+
+
 class TestDockedState:
     def test_docked_status_docked(self):
         vac = make_vacuum(operating_mode=0, docked_status=1)
@@ -89,10 +104,12 @@ class TestDockAndMaintenanceProperties:
             "is_evacuating", "evacuate_state", "evacuate_resume_status",
             "dock_error_code", "dock_knob_status", "warning_code",
             "extended_error_code", "run_time_cumulative", "replace_battery",
-            "recommend_rest_and_recharge", "water_flow",
+            "recommend_rest_and_recharge",
         ):
             assert key in attrs
         assert "schedule" not in attrs  # omitted when empty
+        # No Flow_Mode in this shadow, so no mop tank to report a level for
+        assert "water_flow" not in attrs
 
 
 class TestWaterFlow:
@@ -123,6 +140,42 @@ class TestWaterFlow:
         assert vac.water_flow == "normal"
 
 
+class TestFlowModeCapability:
+    """Vac-only models must not advertise a mop control they can't honour."""
+
+    def test_absent_flow_mode_is_not_a_capability(self):
+        assert make_vacuum().has_flow_mode is False
+
+    def test_present_flow_mode_is_a_capability(self):
+        assert make_mop_vacuum(flow_mode=1).has_flow_mode is True
+
+    def test_capability_holds_even_for_out_of_range_values(self):
+        # The property exists, so the hardware has a tank; the level just
+        # didn't parse. Still a mop model.
+        vac = make_mop_vacuum(flow_mode=99)
+        assert vac.has_flow_mode is True
+        assert vac.water_flow == "normal"
+
+    def test_attributes_include_water_flow_for_mop_models(self):
+        assert "water_flow" in make_mop_vacuum(flow_mode=2).to_attributes_payload()
+
+    @pytest.mark.asyncio
+    async def test_discovery_skips_select_for_vac_only(self, mock_config):
+        client = MqttClient(mock_config)
+        client._publish = AsyncMock()
+        await client.publish_discovery(make_vacuum())
+        topics = [c.args[0] for c in client._publish.call_args_list]
+        assert not any("_water_flow/config" in t for t in topics)
+
+    @pytest.mark.asyncio
+    async def test_discovery_publishes_select_for_mop_models(self, mock_config):
+        client = MqttClient(mock_config)
+        client._publish = AsyncMock()
+        await client.publish_discovery(make_mop_vacuum(flow_mode=1))
+        topics = [c.args[0] for c in client._publish.call_args_list]
+        assert any("_water_flow/config" in t for t in topics)
+
+
 class TestWaterFlowOverrideWhileDocked:
     """Mirrors the fan_speed override: hardware reports eco while docked,
     so the last user-set value should be substituted in the published
@@ -134,38 +187,44 @@ class TestWaterFlowOverrideWhileDocked:
         client._publish = AsyncMock()
         return client
 
-    @pytest.mark.asyncio
-    async def test_no_override_uses_device_reported_value(self, client):
-        vac = make_vacuum(docked_status=1)
-        await client.publish_state(vac)
-        attrs_call = [
+    @staticmethod
+    def _attrs(client):
+        return [
             c for c in client._publish.call_args_list
             if c.args[0].endswith("/attributes")
-        ][0]
-        assert attrs_call.args[1]["water_flow"] == "normal"  # no Flow_Mode set
+        ][0].args[1]
+
+    @pytest.mark.asyncio
+    async def test_no_override_uses_device_reported_value(self, client):
+        vac = make_mop_vacuum(flow_mode=1, docked_status=1)
+        await client.publish_state(vac)
+        assert self._attrs(client)["water_flow"] == "normal"
 
     @pytest.mark.asyncio
     async def test_override_applied_while_docked(self, client):
-        vac = make_vacuum(docked_status=1)
+        vac = make_mop_vacuum(flow_mode=0, docked_status=1)
         client._water_flow_overrides[vac.dsn] = "max"
         await client.publish_state(vac)
-        attrs_call = [
-            c for c in client._publish.call_args_list
-            if c.args[0].endswith("/attributes")
-        ][0]
-        assert attrs_call.args[1]["water_flow"] == "max"
+        assert self._attrs(client)["water_flow"] == "max"
 
     @pytest.mark.asyncio
     async def test_no_override_when_not_docked(self, client):
-        vac = make_vacuum(operating_mode=2, docked_status=0, charging_status=0)
+        vac = make_mop_vacuum(
+            flow_mode=1, operating_mode=2, docked_status=0, charging_status=0
+        )
         client._water_flow_overrides[vac.dsn] = "max"
         await client.publish_state(vac)
-        attrs_call = [
-            c for c in client._publish.call_args_list
-            if c.args[0].endswith("/attributes")
-        ][0]
         # Not docked -> trust the device's own reported value, not the override
-        assert attrs_call.args[1]["water_flow"] == "normal"
+        assert self._attrs(client)["water_flow"] == "normal"
+
+    @pytest.mark.asyncio
+    async def test_override_never_resurrects_water_flow_on_vac_only(self, client):
+        # A stale override must not put the attribute back on a model that
+        # has no mop tank.
+        vac = make_vacuum(docked_status=1)
+        client._water_flow_overrides[vac.dsn] = "max"
+        await client.publish_state(vac)
+        assert "water_flow" not in self._attrs(client)
 
 
 class TestDiscoveryDedup:
