@@ -45,6 +45,9 @@ class CommandRouter:
     async def set_fan_speed(self, device_id: str, speed: str) -> None:
         await self._api_for(device_id).set_fan_speed(device_id, speed)
 
+    async def set_water_flow(self, device_id: str, level: str) -> None:
+        await self._api_for(device_id).set_water_flow(device_id, level)
+
     async def clean_rooms(
         self,
         device_id: str,
