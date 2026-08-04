@@ -135,6 +135,15 @@ class MqttClient:
                 },
                 retain=True,
             )
+        else:
+            # Discovery configs are retained, so simply not publishing one
+            # leaves any previously-published entity sitting in HA forever.
+            # An empty retained payload is autodiscovery's delete.
+            await self._publish(
+                f"{HA_DISCOVERY_PREFIX}/select/{uid}_water_flow/config",
+                "",
+                retain=True,
+            )
 
         # Battery sensor
         await self._publish(

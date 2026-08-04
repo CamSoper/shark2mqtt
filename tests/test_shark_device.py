@@ -160,12 +160,20 @@ class TestFlowModeCapability:
         assert "water_flow" in make_mop_vacuum(flow_mode=2).to_attributes_payload()
 
     @pytest.mark.asyncio
-    async def test_discovery_skips_select_for_vac_only(self, mock_config):
+    async def test_discovery_retracts_select_for_vac_only(self, mock_config):
+        # Not publishing isn't enough — discovery configs are retained, so a
+        # config published by an earlier version would linger in HA. The
+        # empty payload is autodiscovery's delete.
         client = MqttClient(mock_config)
         client._publish = AsyncMock()
         await client.publish_discovery(make_vacuum())
-        topics = [c.args[0] for c in client._publish.call_args_list]
-        assert not any("_water_flow/config" in t for t in topics)
+        water_flow = [
+            c for c in client._publish.call_args_list
+            if "_water_flow/config" in c.args[0]
+        ]
+        assert len(water_flow) == 1
+        assert water_flow[0].args[1] == ""
+        assert water_flow[0].kwargs["retain"] is True
 
     @pytest.mark.asyncio
     async def test_discovery_publishes_select_for_mop_models(self, mock_config):
