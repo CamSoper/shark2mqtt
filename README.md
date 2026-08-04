@@ -256,6 +256,10 @@ Big thanks to the folks who've made this project better than I could've made it 
 - [@hjennerway](https://github.com/hjennerway) -- captured the EU API traffic that made EU region support possible.
 - [@hslabbert](https://github.com/hslabbert) -- patiently dug through round after round of DEBUG shadow dumps to shake out the room-naming bugs on PowerDetect models ([#4](https://github.com/CamSoper/shark2mqtt/issues/4)). Led to the MARD-as-authoritative-room-source fix.
 - [@400HPMustang](https://github.com/400HPMustang) -- built the [Home Assistant OS add-on](https://github.com/400HPMustang/shark2mqtt-addon).
+- [@Shadinss](https://github.com/Shadinss) -- ran capture after capture on RV2820YEUS mop behaviour ([#27](https://github.com/CamSoper/shark2mqtt/issues/27)), turning up the `cleantype: "wet"` payload and error code 48. Also the reason shadow dumps now log property *values* -- he was the one who pointed out they only ever logged the names.
+- [@dewbot6](https://github.com/dewbot6) -- worked out that Auth0's "your account has been locked" message is bot detection flagging the automated login rather than a real lock ([#38](https://github.com/CamSoper/shark2mqtt/issues/38)), and found the `page.goto()` call sitting outside the try/except that fed the circuit breaker ([#37](https://github.com/CamSoper/shark2mqtt/pull/37)).
+- [@xytras78](https://github.com/xytras78) -- caught that dry room cleans report `Operating_Mode 6` and had therefore been showing as `idle` in Home Assistant for their entire duration ([#39](https://github.com/CamSoper/shark2mqtt/pull/39)). Tested every mode on hardware and wrote down the negative result for mode 5 so nobody has to run that experiment again.
+- [@adurham](https://github.com/adurham) -- added mop water flow level control after spotting `Flow_Mode` in a shadow dump ([#36](https://github.com/CamSoper/shark2mqtt/pull/36)), with a control test against the known-good `Power_Mode` path.
 
 ## Building from Source
 
