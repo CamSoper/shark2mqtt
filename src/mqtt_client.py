@@ -378,6 +378,23 @@ class MqttClient:
             retain=True,
         )
 
+        # Image entity for map
+        await self._publish(
+            f"{HA_DISCOVERY_PREFIX}/image/{uid}_map/config",
+            {
+                "name": "Map",
+                "unique_id": f"{uid}_map",
+                "object_id": f"{slug}_map",
+                "image_topic": f"{self._prefix}/{dsn}/map_image",
+                "content_type": "image/png",
+                "availability_topic": f"{self._prefix}/{dsn}/available",
+                "payload_available": "online",
+                "payload_not_available": "offline",
+                "device": device.device_info,
+            },
+            retain=True,
+        )
+
         # Per-room clean buttons (only when room data is available)
         current_room_slugs: set[str] = set()
         if device.rooms:
@@ -494,6 +511,208 @@ class MqttClient:
     async def publish_status(self, status: dict[str, Any]) -> None:
         """Publish auth/system status."""
         await self._publish(f"{self._prefix}/status", status, retain=True)
+
+    async def publish_map_image(
+        self,
+        device: SharkVacuum,
+        parsed_map: dict[str, Any],
+        dpi: int = 150,
+    ) -> None:
+        """Publish floor map as a PNG image to Home Assistant.
+
+        Args:
+            device: The SharkVacuum device
+            parsed_map: Parsed floor map data from visualize_floor_map.parse_floor_map()
+            dpi: Image DPI (default 150)
+        """
+        from io import BytesIO
+
+        try:
+            import matplotlib as mpl
+            mpl.use("Agg")
+            import matplotlib.pyplot as plt
+            from matplotlib.patches import Polygon as MplPolygon
+            from matplotlib.colors import BoundaryNorm, ListedColormap
+            import numpy as np
+            import math
+        except ImportError as e:
+            logger.error("matplotlib not installed: %s", e)
+            return
+
+        dsn = device.dsn
+        grid = parsed_map["grid"]
+        resolution = grid["resolution"]
+        origin_x, origin_y = grid["origin"]
+        height = grid["height"]
+        width = grid["width"]
+
+        # Cell value -> numeric category for colormap
+        CELL_CATEGORIES = {
+            0x00: 0,   # free
+            0x01: 1,   # unknown
+            0x0F: 2,   # low confidence free
+            0x4B: 3,   # navigable
+            0x5A: 4,   # partial occupied 90
+            0x5C: 5,   # partial occupied 92
+            0x64: 6,   # wall
+            0x56: 7,   # virtual wall
+        }
+
+        CELL_COLORS = [
+            "#FFFFFF",  # 0: free - white
+            "#D0D0D0",  # 1: unknown - light gray
+            "#E8F5E9",  # 2: low confidence free - pale green
+            "#81C784",  # 3: navigable - green
+            "#FF9800",  # 4: partial occupied 90 - orange
+            "#F57C00",  # 5: partial occupied 92 - dark orange
+            "#212121",  # 6: wall - near black
+            "#F44336",  # 7: virtual wall - red
+            "#9E9E9E",  # 8: other/default - gray
+        ]
+
+        ZONE_COLORS = [
+            "#2196F3",  # blue
+            "#4CAF50",  # green
+            "#FF9800",  # orange
+            "#9C27B0",  # purple
+            "#00BCD4",  # cyan
+            "#E91E63",  # pink
+            "#CDDC39",  # lime
+            "#795548",  # brown
+        ]
+
+        # Build grid image
+        cells = grid["cells"]
+        img = np.full((height, width), 8, dtype=np.uint8)  # default = "other"
+        for row in range(height):
+            for col in range(width):
+                idx = row * width + col
+                if idx < len(cells):
+                    img[row, col] = CELL_CATEGORIES.get(cells[idx], 8)
+
+        # World-space extent
+        x_min = origin_x
+        x_max = origin_x + width * resolution
+        y_min = origin_y
+        y_max = origin_y + height * resolution
+
+        # Create colormap
+        cmap = ListedColormap(CELL_COLORS)
+        norm = BoundaryNorm(range(len(CELL_COLORS) + 1), cmap.N)
+
+        # Figure setup
+        fig_width = max(12, width * resolution * 0.8)
+        fig_height = max(9, height * resolution * 0.8)
+        fig, ax = plt.subplots(1, 1, figsize=(fig_width, fig_height), dpi=dpi)
+
+        # Render grid (flip vertically so y increases upward)
+        ax.imshow(
+            img[::-1],
+            cmap=cmap,
+            norm=norm,
+            extent=[x_min, x_max, y_min, y_max],
+            interpolation="nearest",
+            aspect="equal",
+            zorder=1,
+        )
+
+        # Zone overlays
+        for i, zone in enumerate(parsed_map.get("zones", [])):
+            pts = zone.get("boundary", [])
+            if len(pts) < 3:
+                continue
+            color = ZONE_COLORS[i % len(ZONE_COLORS)]
+            polygon = MplPolygon(
+                pts,
+                closed=True,
+                facecolor=color,
+                edgecolor=color,
+                alpha=0.2,
+                linewidth=1.5,
+                zorder=3,
+            )
+            ax.add_patch(polygon)
+            # Zone outline
+            outline = MplPolygon(
+                pts,
+                closed=True,
+                facecolor="none",
+                edgecolor=color,
+                linewidth=2.0,
+                linestyle="--",
+                zorder=4,
+            )
+            ax.add_patch(outline)
+            # Label at centroid
+            cx = sum(p[0] for p in pts) / len(pts)
+            cy = sum(p[1] for p in pts) / len(pts)
+            ax.text(
+                cx, cy,
+                zone.get("zone_name", zone.get("zone_id", "")),
+                ha="center", va="center",
+                fontsize=9, fontweight="bold",
+                color=color,
+                bbox=dict(boxstyle="round,pad=0.2", facecolor="white", alpha=0.8, edgecolor=color),
+                zorder=5,
+            )
+
+        # Boundary outlines (obstacles/walls)
+        for boundary in parsed_map.get("boundaries", []):
+            if len(boundary) < 3:
+                continue
+            polygon = MplPolygon(
+                boundary,
+                closed=True,
+                facecolor="none",
+                edgecolor="#D32F2F",
+                linewidth=1.5,
+                linestyle="-",
+                zorder=4,
+            )
+            ax.add_patch(polygon)
+
+        # Robot pose
+        if parsed_map.get("pose"):
+            px, py, pz = parsed_map["pose"]
+            ax.plot(px, py, "o", color="#1565C0", markersize=10, zorder=6)
+            # Heading arrow (pz is yaw in radians)
+            arrow_len = 0.4
+            dx = arrow_len * math.cos(pz)
+            dy = arrow_len * math.sin(pz)
+            ax.annotate(
+                "",
+                xy=(px + dx, py + dy),
+                xytext=(px, py),
+                arrowprops=dict(arrowstyle="->", color="#1565C0", lw=2.5),
+                zorder=6,
+            )
+
+        # Axes
+        ax.set_xlabel("X (meters)", fontsize=11)
+        ax.set_ylabel("Y (meters)", fontsize=11)
+        ax.set_title(
+            f"Floor Map: {parsed_map.get('map_id', '')}  |  "
+            f"{width}x{height} cells @ {resolution}m",
+            fontsize=12,
+            fontweight="bold",
+        )
+        ax.set_xlim(x_min - 0.5, x_max + 0.5)
+        ax.set_ylim(y_min - 0.5, y_max + 0.5)
+        ax.grid(True, alpha=0.2, linewidth=0.5)
+        ax.set_aspect("equal")
+
+        plt.tight_layout()
+
+        # Save to memory buffer as PNG
+        buf = BytesIO()
+        fig.savefig(buf, format="png", dpi=dpi, bbox_inches="tight", facecolor="white")
+        buf.seek(0)
+        plt.close(fig)
+
+        # Publish raw PNG bytes to image topic
+        image_topic = f"{self._prefix}/{dsn}/map_image"
+        await self._client.publish(image_topic, buf.read(), qos=1, retain=True)
+        logger.info("Published map image for %s (%d bytes)", dsn, len(buf.getvalue()))
 
     # --- Command handling ---
 

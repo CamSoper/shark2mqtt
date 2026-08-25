@@ -4,12 +4,18 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
 import signal
-
+import time
+from pathlib import Path
 from typing import Any
 
 import aiomqtt
+import filetype
+
+# Import floor map parsing function
+from visualize_floor_map import parse_floor_map_bytes
 
 from .ayla_api import AylaApi, MardData, debug_dump_mard_structure, parse_mard
 from .config import Settings
@@ -18,8 +24,6 @@ from .mqtt_client import MqttClient
 from .shark_auth import SharkAuth
 from .shark_device import SharkVacuum
 from .skegox_api import SkegoxApi
-
-logger = logging.getLogger("shark2mqtt")
 
 # Broker CONNACK codes that mean "your credentials were refused" rather than
 # "the broker is unreachable". 4/5 are MQTT 3.1.1 CONNACK codes; 134/135 are
@@ -37,6 +41,8 @@ def _is_mqtt_auth_failure(err: aiomqtt.MqttError) -> bool:
     rc = getattr(err, "rc", None)
     return getattr(rc, "value", rc) in _MQTT_AUTH_RCS
 
+logger = logging.getLogger("shark2mqtt")
+IMAGE_CACHE_INTERVAL = 30
 
 class CommandRouter:
     """Routes commands to the correct API based on per-device api_backend."""
@@ -109,6 +115,50 @@ async def _fetch_skegox_mard(
         debug_dump_mard_structure(body, product_name, source="Skegox MARD")
     return parse_mard(body, product_name, dsn, source="Skegox MARD")
 
+async def _fetch_skegox_visual_floor(
+    api: SkegoxApi,
+    dsn: str,
+    product_name: str,
+) -> bytes:
+    """Fetch and retrieve the Visual_Floor_1 bin file for a device.
+
+    This method fetches the Visual_Floor_1 property from Skegox API
+    and returns it as bytes.
+    """
+    source = "Skegox Visual_Floor_1"
+    try:
+        body = await api.fetch_property_file(dsn, "Visual_Floor_1")
+    except Exception as e:
+        logger.debug("Skegox Visual_Floor_1 fetch failed for %s: %s", product_name, e, exc_info=True)
+        return b""
+
+    if not body:
+        logger.debug(
+            "Skegox Visual_Floor_1 for %s (%s): not available",
+            product_name,
+            dsn,
+        )
+        return b""
+
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(
+            "Skegox Visual_Floor_1 fetched for %s (%s): %d bytes",
+            product_name,
+            dsn,
+            len(body),
+        )
+
+    try:
+        parsed = body.decode("utf-8", errors='replace')
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        logger.debug("%s for %s: not valid JSON", source, product_name)
+        return {}
+
+    logger.debug("Decoded Body Type: %s", type(parsed))
+    # Optionally, you can add code here to identify the file type
+    # For example, checking magic numbers or headers
+
+    return body
 
 async def poll_loop(
     api: SkegoxApi,
@@ -128,6 +178,8 @@ async def poll_loop(
     # only changes on room edits/map saves, not per poll, so re-fetching
     # every cycle would waste API calls and S3 presigned URLs.
     skegox_mard_cache: dict[str, MardData] = {}
+    floor_map_last_update: dict[str, float] = {}
+    shegox_floor_map_bin = None
 
     while True:
         any_active = False
@@ -158,6 +210,34 @@ async def poll_loop(
                     if skegox_mard.rooms:
                         skegox_mard_cache[device.dsn] = skegox_mard
                 ayla = ayla_mard.get(device.dsn)
+
+                # Check if we should update the floor map
+                # Always update on first fetch, otherwise only if cleaning and cache interval has passed
+                last_update = floor_map_last_update.get(device.dsn, 0.0)
+                is_cleaning = device.ha_state == "cleaning"
+                should_update_map = (
+                    shegox_floor_map_bin is None or  # First time, always fetch
+                    (is_cleaning and (time.time() - last_update) >= IMAGE_CACHE_INTERVAL)
+                )
+
+                if should_update_map:
+                    visual_floor_data = await _fetch_skegox_visual_floor(api, device.dsn, device.product_name)
+                    if visual_floor_data:
+                        image_type = filetype.guess_mime(visual_floor_data) or type(visual_floor_data)
+                        with Path.open("Visual_Floor_1.bin", "wb") as fp:
+                            fp.write(visual_floor_data)
+                        logger.info(f"Visual_Floor_1 for {device.product_name} ({device.dsn}): type is {image_type}")
+
+                        # Parse and publish the floor map image
+                        try:
+                            parsed_map = parse_floor_map_bytes(visual_floor_data)
+                            await mqtt.publish_map_image(device, parsed_map)
+                            logger.info(f"Published floor map image for {device.product_name}")
+                            # Update the cache timestamp on successful publish
+                            floor_map_last_update[device.dsn] = time.time()
+                        except Exception as e:
+                            logger.error(f"Failed to parse/publish floor map: {e}")
+                    shegox_floor_map_bin = visual_floor_data or {}
 
                 if skegox_mard.rooms:
                     if first_poll:
