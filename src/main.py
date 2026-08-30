@@ -14,9 +14,6 @@ from typing import Any
 import aiomqtt
 import filetype
 
-# Import floor map parsing function
-from visualize_floor_map import parse_floor_map_bytes
-
 from .ayla_api import AylaApi, MardData, debug_dump_mard_structure, parse_mard
 from .config import Settings
 from .exc import SharkAuthError
@@ -24,6 +21,9 @@ from .mqtt_client import MqttClient
 from .shark_auth import SharkAuth
 from .shark_device import SharkVacuum
 from .skegox_api import SkegoxApi
+
+# Import floor map parsing function
+from .visualize_floor_map import parse_floor_map_bytes
 
 # Broker CONNACK codes that mean "your credentials were refused" rather than
 # "the broker is unreachable". 4/5 are MQTT 3.1.1 CONNACK codes; 134/135 are
