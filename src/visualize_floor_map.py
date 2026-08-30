@@ -272,20 +272,29 @@ ZONE_COLORS = [
     "#795548",  # brown
 ]
 
+# Byte value -> category lookup table so the whole grid maps in one
+# vectorized gather instead of a per-cell Python loop.
+_CELL_LUT = np.full(256, 8, dtype=np.uint8)
+for _val, _cat in CELL_CATEGORIES.items():
+    _CELL_LUT[_val] = _cat
+
 
 def build_grid_image(grid):
-    """Convert raw cell bytes to a categorized numpy array."""
-    height = grid["height"]
-    width = grid["width"]
-    cells = grid["cells"]
+    """Convert raw cell bytes to a categorized numpy array.
 
-    img = np.full((height, width), 8, dtype=np.uint8)  # default = "other"
-    for row in range(height):
-        for col in range(width):
-            idx = row * width + col
-            if idx < len(cells):
-                img[row, col] = CELL_CATEGORIES.get(cells[idx], 8)
-    return img
+    In this format the header "width" is the number of cell rows
+    (y-direction) and "height" is the number of columns (x-direction).
+    The buffer is row-major with the row index running along world y, so
+    the returned array is shaped (rows, cols) = (width, height) with row 0
+    at the origin (lowest y).
+    """
+    rows = grid["width"]
+    cols = grid["height"]
+    cells = grid["cells"]
+    if len(cells) < rows * cols:
+        raise ValueError(f"cells buffer too short: got {len(cells)}, need {rows * cols}")
+    raw = np.frombuffer(cells[: rows * cols], dtype=np.uint8)
+    return _CELL_LUT[raw.reshape(rows, cols)]
 
 
 def render_floor_map(parsed, output_path=None, dpi=150, show_zones=True, show_boundaries=True):
@@ -293,14 +302,16 @@ def render_floor_map(parsed, output_path=None, dpi=150, show_zones=True, show_bo
     grid = parsed["grid"]
     resolution = grid["resolution"]
     origin_x, origin_y = grid["origin"]
-    height = grid["height"]
-    width = grid["width"]
+    # Header "width" is the number of cell rows (y-direction), "height" is
+    # the number of columns (x-direction). See build_grid_image.
+    rows = grid["width"]
+    cols = grid["height"]
 
     # World-space extent
     x_min = origin_x
-    x_max = origin_x + width * resolution
+    x_max = origin_x + cols * resolution
     y_min = origin_y
-    y_max = origin_y + height * resolution
+    y_max = origin_y + rows * resolution
 
     # Build grid image
     img = build_grid_image(grid)
@@ -310,8 +321,8 @@ def render_floor_map(parsed, output_path=None, dpi=150, show_zones=True, show_bo
     norm = BoundaryNorm(range(len(CELL_COLORS) + 1), cmap.N)
 
     # Figure setup
-    fig_width = max(12, width * resolution * 0.8)
-    fig_height = max(9, height * resolution * 0.8)
+    fig_width = max(12, cols * resolution * 0.8)
+    fig_height = max(9, rows * resolution * 0.8)
     fig, ax = plt.subplots(1, 1, figsize=(fig_width, fig_height), dpi=dpi)
 
     # Render grid (flip vertically so y increases upward)
@@ -415,8 +426,8 @@ def render_floor_map(parsed, output_path=None, dpi=150, show_zones=True, show_bo
     ax.set_ylabel("Y (meters)", fontsize=11)
     ax.set_title(
         f"Floor Map: {parsed['map_id']}  |  "
-        f"{width}x{height} cells @ {resolution}m  |  "
-        f"{width * resolution:.1f}m x {height * resolution:.1f}m",
+        f"{cols}x{rows} cells @ {resolution}m  |  "
+        f"{cols * resolution:.1f}m x {rows * resolution:.1f}m",
         fontsize=12,
         fontweight="bold",
     )
