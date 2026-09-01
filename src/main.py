@@ -235,7 +235,7 @@ async def poll_loop(
                             logger.info(f"Published floor map image for {device.product_name}")
                             # Update the cache timestamp on successful publish
                             floor_map_last_update[device.dsn] = time.time()
-                        except Exception as e:
+                        except (TypeError, ValueError, OSError, TimeoutError, aiomqtt.MqttError) as e:
                             logger.error(f"Failed to parse/publish floor map: {e}")
                     shegox_floor_map_bin = visual_floor_data or {}
 
