@@ -376,7 +376,7 @@ def render_floor_map(parsed, output_path=None, dpi=150, show_zones=True, show_bo
                 fontsize=9,
                 fontweight="bold",
                 color=color,
-                bbox=dict(boxstyle="round,pad=0.2", facecolor="white", alpha=0.8, edgecolor=color),
+                bbox={"boxstyle": "round,pad=0.2", "facecolor": "white", "alpha": 0.8, "edgecolor": color},
                 zorder=5,
             )
 
@@ -408,7 +408,7 @@ def render_floor_map(parsed, output_path=None, dpi=150, show_zones=True, show_bo
             "",
             xy=(px + dx, py + dy),
             xytext=(px, py),
-            arrowprops=dict(arrowstyle="->", color="#1565C0", lw=2.5),
+            arrowprops={"arrowstyle": "->", "color": "#1565C0", "lw": 2.5},
             zorder=6,
         )
         ax.text(

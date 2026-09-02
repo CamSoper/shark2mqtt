@@ -224,9 +224,11 @@ async def poll_loop(
                     visual_floor_data = await _fetch_skegox_visual_floor(api, device.dsn, device.product_name)
                     if visual_floor_data:
                         image_type = filetype.guess_mime(visual_floor_data) or type(visual_floor_data)
-                        with Path.open("Visual_Floor_1.bin", "wb") as fp:
+                        out_path = Path(f"Visual_Floor_1_{int(time.time())}.bin")
+                        with Path.open(out_path, "wb") as fp:
                             fp.write(visual_floor_data)
-                        logger.info(f"Visual_Floor_1 for {device.product_name} ({device.dsn}): type is {image_type}")
+                        logger.info(f"Visual_Floor_1 for {device.product_name} ({device.dsn}): type is {image_type}, saved to {out_path}")
+
 
                         # Parse and publish the floor map image
                         try:
