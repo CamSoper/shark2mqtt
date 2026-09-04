@@ -10,9 +10,12 @@ from typing import TYPE_CHECKING, Any
 
 import aiomqtt
 
+from .visualize_floor_map import render_floor_map_pillow
+
 if TYPE_CHECKING:
     from .config import Settings
     from .shark_device import SharkVacuum
+
 
 logger = logging.getLogger(__name__)
 
@@ -101,8 +104,14 @@ class MqttClient:
                 "set_fan_speed_topic": f"{self._prefix}/{dsn}/set_fan_speed",
                 "fan_speed_list": ["eco", "normal", "max"],
                 "supported_features": [
-                    "start", "stop", "pause", "return_home",
-                    "locate", "fan_speed", "status", "send_command",
+                    "start",
+                    "stop",
+                    "pause",
+                    "return_home",
+                    "locate",
+                    "fan_speed",
+                    "status",
+                    "send_command",
                 ],
                 "availability_topic": f"{self._prefix}/{dsn}/available",
                 "payload_available": "online",
@@ -440,7 +449,9 @@ class MqttClient:
             # Publish current clean mode state
             mode = self._clean_modes.get(dsn, "Normal")
             await self._publish(
-                f"{self._prefix}/{dsn}/clean_mode/state", mode, retain=True,
+                f"{self._prefix}/{dsn}/clean_mode/state",
+                mode,
+                retain=True,
             )
 
         # Remove stale room buttons that no longer exist
@@ -449,7 +460,8 @@ class MqttClient:
         for room_slug in stale_rooms:
             await self._publish(
                 f"{HA_DISCOVERY_PREFIX}/button/{uid}_clean_{room_slug}/config",
-                "", retain=True,
+                "",
+                retain=True,
             )
             logger.info("Removed stale room button %s for %s", room_slug, dsn)
         self._published_rooms[dsn] = current_room_slugs
@@ -460,7 +472,9 @@ class MqttClient:
     # --- State publishing ---
 
     async def publish_state(
-        self, device: SharkVacuum, prev_error: dict[str, int] | None = None,
+        self,
+        device: SharkVacuum,
+        prev_error: dict[str, int] | None = None,
     ) -> None:
         """Publish device state, attributes, and availability.
 
@@ -500,7 +514,9 @@ class MqttClient:
                 )
                 logger.warning(
                     "Error on %s: %s (code %d)",
-                    device.product_name, device.error_text, device.error_code,
+                    device.product_name,
+                    device.error_text,
+                    device.error_code,
                 )
 
     async def publish_unavailable(self, devices: list[SharkVacuum]) -> None:
@@ -525,194 +541,13 @@ class MqttClient:
             parsed_map: Parsed floor map data from visualize_floor_map.parse_floor_map()
             dpi: Image DPI (default 150)
         """
-        from io import BytesIO
-
-        try:
-            import matplotlib as mpl
-            mpl.use("Agg")
-            import matplotlib.pyplot as plt
-            from matplotlib.patches import Polygon as MplPolygon
-            from matplotlib.colors import BoundaryNorm, ListedColormap
-            import numpy as np
-            import math
-        except ImportError as e:
-            logger.error("matplotlib not installed: %s", e)
-            return
-
         dsn = device.dsn
-        grid = parsed_map["grid"]
-        resolution = grid["resolution"]
-        origin_x, origin_y = grid["origin"]
-        height = grid["height"]
-        width = grid["width"]
-
-        # Cell value -> numeric category for colormap
-        CELL_CATEGORIES = {
-            0x00: 0,   # free
-            0x01: 1,   # unknown
-            0x0F: 2,   # low confidence free
-            0x4B: 3,   # navigable
-            0x5A: 4,   # partial occupied 90
-            0x5C: 5,   # partial occupied 92
-            0x64: 6,   # wall
-            0x56: 7,   # virtual wall
-        }
-
-        CELL_COLORS = [
-            "#FFFFFF",  # 0: free - white
-            "#D0D0D0",  # 1: unknown - light gray
-            "#E8F5E9",  # 2: low confidence free - pale green
-            "#81C784",  # 3: navigable - green
-            "#FF9800",  # 4: partial occupied 90 - orange
-            "#F57C00",  # 5: partial occupied 92 - dark orange
-            "#212121",  # 6: wall - near black
-            "#F44336",  # 7: virtual wall - red
-            "#9E9E9E",  # 8: other/default - gray
-        ]
-
-        ZONE_COLORS = [
-            "#2196F3",  # blue
-            "#4CAF50",  # green
-            "#FF9800",  # orange
-            "#9C27B0",  # purple
-            "#00BCD4",  # cyan
-            "#E91E63",  # pink
-            "#CDDC39",  # lime
-            "#795548",  # brown
-        ]
-
-        # Build grid image
-        cells = grid["cells"]
-        img = np.full((height, width), 8, dtype=np.uint8)  # default = "other"
-        for row in range(height):
-            for col in range(width):
-                idx = row * width + col
-                if idx < len(cells):
-                    img[row, col] = CELL_CATEGORIES.get(cells[idx], 8)
-
-        # World-space extent
-        x_min = origin_x
-        x_max = origin_x + width * resolution
-        y_min = origin_y
-        y_max = origin_y + height * resolution
-
-        # Create colormap
-        cmap = ListedColormap(CELL_COLORS)
-        norm = BoundaryNorm(range(len(CELL_COLORS) + 1), cmap.N)
-
-        # Figure setup
-        fig_width = max(12, width * resolution * 0.8)
-        fig_height = max(9, height * resolution * 0.8)
-        fig, ax = plt.subplots(1, 1, figsize=(fig_width, fig_height), dpi=dpi)
-
-        # Render grid (flip vertically so y increases upward)
-        ax.imshow(
-            img[::-1],
-            cmap=cmap,
-            norm=norm,
-            extent=[x_min, x_max, y_min, y_max],
-            interpolation="nearest",
-            aspect="equal",
-            zorder=1,
-        )
-
-        # Zone overlays
-        for i, zone in enumerate(parsed_map.get("zones", [])):
-            pts = zone.get("boundary", [])
-            if len(pts) < 3:
-                continue
-            color = ZONE_COLORS[i % len(ZONE_COLORS)]
-            polygon = MplPolygon(
-                pts,
-                closed=True,
-                facecolor=color,
-                edgecolor=color,
-                alpha=0.2,
-                linewidth=1.5,
-                zorder=3,
-            )
-            ax.add_patch(polygon)
-            # Zone outline
-            outline = MplPolygon(
-                pts,
-                closed=True,
-                facecolor="none",
-                edgecolor=color,
-                linewidth=2.0,
-                linestyle="--",
-                zorder=4,
-            )
-            ax.add_patch(outline)
-            # Label at centroid
-            cx = sum(p[0] for p in pts) / len(pts)
-            cy = sum(p[1] for p in pts) / len(pts)
-            ax.text(
-                cx, cy,
-                zone.get("zone_name", zone.get("zone_id", "")),
-                ha="center", va="center",
-                fontsize=9, fontweight="bold",
-                color=color,
-                bbox=dict(boxstyle="round,pad=0.2", facecolor="white", alpha=0.8, edgecolor=color),
-                zorder=5,
-            )
-
-        # Boundary outlines (obstacles/walls)
-        for boundary in parsed_map.get("boundaries", []):
-            if len(boundary) < 3:
-                continue
-            polygon = MplPolygon(
-                boundary,
-                closed=True,
-                facecolor="none",
-                edgecolor="#D32F2F",
-                linewidth=1.5,
-                linestyle="-",
-                zorder=4,
-            )
-            ax.add_patch(polygon)
-
-        # Robot pose
-        if parsed_map.get("pose"):
-            px, py, pz = parsed_map["pose"]
-            ax.plot(px, py, "o", color="#1565C0", markersize=10, zorder=6)
-            # Heading arrow (pz is yaw in radians)
-            arrow_len = 0.4
-            dx = arrow_len * math.cos(pz)
-            dy = arrow_len * math.sin(pz)
-            ax.annotate(
-                "",
-                xy=(px + dx, py + dy),
-                xytext=(px, py),
-                arrowprops=dict(arrowstyle="->", color="#1565C0", lw=2.5),
-                zorder=6,
-            )
-
-        # Axes
-        ax.set_xlabel("X (meters)", fontsize=11)
-        ax.set_ylabel("Y (meters)", fontsize=11)
-        ax.set_title(
-            f"Floor Map: {parsed_map.get('map_id', '')}  |  "
-            f"{width}x{height} cells @ {resolution}m",
-            fontsize=12,
-            fontweight="bold",
-        )
-        ax.set_xlim(x_min - 0.5, x_max + 0.5)
-        ax.set_ylim(y_min - 0.5, y_max + 0.5)
-        ax.grid(True, alpha=0.2, linewidth=0.5)
-        ax.set_aspect("equal")
-
-        plt.tight_layout()
-
-        # Save to memory buffer as PNG
-        buf = BytesIO()
-        fig.savefig(buf, format="png", dpi=dpi, bbox_inches="tight", facecolor="white")
-        buf.seek(0)
-        plt.close(fig)
+        png = render_floor_map_pillow(parsed_map, dpi=dpi)
 
         # Publish raw PNG bytes to image topic
         image_topic = f"{self._prefix}/{dsn}/map_image"
-        await self._client.publish(image_topic, buf.read(), qos=1, retain=True)
-        logger.info("Published map image for %s (%d bytes)", dsn, len(buf.getvalue()))
+        await self._client.publish(image_topic, png, qos=1, retain=True)
+        logger.info("Published map image for %s (%d bytes)", dsn, len(png))
 
     # --- Command handling ---
 
@@ -767,12 +602,18 @@ class MqttClient:
                 elif topic.endswith("/send_command"):
                     logger.info("send_command received for %s", device_id)
                     await self._handle_send_command(
-                        command_handler, device_id, payload, devices,
+                        command_handler,
+                        device_id,
+                        payload,
+                        devices,
                     )
                 elif topic.endswith("/clean_room"):
                     logger.info("clean_room button pressed for %s", device_id)
                     await self._handle_clean_room(
-                        command_handler, device_id, payload, devices,
+                        command_handler,
+                        device_id,
+                        payload,
+                        devices,
                     )
                 elif topic.endswith("/clean_mode"):
                     mode = payload.strip()
@@ -780,7 +621,8 @@ class MqttClient:
                         self._clean_modes[device_id] = mode
                         await self._publish(
                             f"{self._prefix}/{device_id}/clean_mode/state",
-                            mode, retain=True,
+                            mode,
+                            retain=True,
                         )
                         logger.info("Clean mode set to %s for %s", mode, device_id)
                     else:
@@ -791,7 +633,10 @@ class MqttClient:
                 logger.exception("Failed to handle command on %s", topic)
 
     async def _handle_clean_room(
-        self, handler: Any, device_id: str, payload: str,
+        self,
+        handler: Any,
+        device_id: str,
+        payload: str,
         devices: dict[str, Any],
     ) -> None:
         """Handle room button press — dispatches clean_rooms with current mode."""
@@ -816,24 +661,29 @@ class MqttClient:
             api_mode, clean_count = "UserRoom", 1
 
         use_v3 = getattr(device, "has_areas_v3", False)
-        api_rooms = (
-            device.to_robot_room_names([room])
-            if device and hasattr(device, "to_robot_room_names")
-            else [room]
-        )
+        api_rooms = device.to_robot_room_names([room]) if device and hasattr(device, "to_robot_room_names") else [room]
         await handler.clean_rooms(
-            device_id, rooms=api_rooms, floor_id=floor_id,
-            clean_type="dry", clean_count=clean_count, mode=api_mode,
+            device_id,
+            rooms=api_rooms,
+            floor_id=floor_id,
+            clean_type="dry",
+            clean_count=clean_count,
+            mode=api_mode,
             use_v3=use_v3,
         )
         logger.info(
             "Room clean started: %s (api=%s) on %s (mode=%s)",
-            room, api_rooms, device_id, mode,
+            room,
+            api_rooms,
+            device_id,
+            mode,
         )
 
     @staticmethod
     async def _handle_send_command(
-        handler: Any, device_id: str, payload: str,
+        handler: Any,
+        device_id: str,
+        payload: str,
         devices: dict[str, Any],
     ) -> None:
         """Handle vacuum.send_command from HA.
@@ -847,6 +697,7 @@ class MqttClient:
                           clean_count: 1, clean_type: "dry"}
         """
         import json as _json
+
         # HA may publish the command as raw JSON ({"command": "..."}) or as a
         # plain command string (e.g. "vacuum_and_mop"). Accept both.
         try:
@@ -898,9 +749,13 @@ class MqttClient:
                 logger.warning("clean_room: no floor_id available")
                 return
             await handler.clean_rooms(
-                device_id, rooms=to_api_rooms([room]), floor_id=floor_id,
+                device_id,
+                rooms=to_api_rooms([room]),
+                floor_id=floor_id,
                 clean_type=params.get("clean_type", "dry"),
-                clean_count=1, mode="UserRoom", use_v3=use_v3,
+                clean_count=1,
+                mode="UserRoom",
+                use_v3=use_v3,
             )
 
         elif command == "matrix_clean":
@@ -913,9 +768,13 @@ class MqttClient:
                 logger.warning("matrix_clean: no floor_id available")
                 return
             await handler.clean_rooms(
-                device_id, rooms=to_api_rooms([room]), floor_id=floor_id,
+                device_id,
+                rooms=to_api_rooms([room]),
+                floor_id=floor_id,
                 clean_type=params.get("clean_type", "dry"),
-                clean_count=2, mode="UltraClean", use_v3=use_v3,
+                clean_count=2,
+                mode="UltraClean",
+                use_v3=use_v3,
             )
 
         elif command == "clean_rooms":
@@ -928,10 +787,13 @@ class MqttClient:
                 logger.warning("clean_rooms: no floor_id available")
                 return
             await handler.clean_rooms(
-                device_id, rooms=to_api_rooms(rooms), floor_id=floor_id,
+                device_id,
+                rooms=to_api_rooms(rooms),
+                floor_id=floor_id,
                 clean_type=params.get("clean_type", "dry"),
                 clean_count=params.get("clean_count", 1),
-                mode=params.get("mode", "UserRoom"), use_v3=use_v3,
+                mode=params.get("mode", "UserRoom"),
+                use_v3=use_v3,
             )
 
         else:

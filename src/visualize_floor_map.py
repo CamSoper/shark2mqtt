@@ -19,13 +19,16 @@ Usage:
 """
 
 import argparse
+import io
 import logging
 import math
 import struct
 import sys
 from pathlib import Path
+from typing import Any
 
 import numpy as np
+from PIL import Image, ImageDraw, ImageFont
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +108,114 @@ def decode_polygon_points(buf):
     return points
 
 
+def _decode_message(buf):
+    """Parse a protobuf message into a list of (field, wire_type, payload).
+
+    `payload` is the raw value bytes (varint payload, message bytes, or
+    None for fixed32/64). Raises ValueError when the buffer does not
+    contain a well-formed message.
+    """
+    fields = []
+    offset = 0
+    while offset < len(buf):
+        start = offset
+        tag, offset = decode_varint(buf, offset)
+        field_num = tag >> 3
+        wire_type = tag & 0x07
+        if field_num == 0:
+            raise ValueError(f"invalid protobuf tag at offset {start}")
+        if wire_type == 0:
+            value, offset = decode_varint(buf, offset)
+            fields.append((field_num, 0, value))
+        elif wire_type == 2:
+            length, offset = decode_varint(buf, offset)
+            if offset + length > len(buf):
+                raise ValueError(f"truncated field {field_num} at offset {start}")
+            fields.append((field_num, 2, buf[offset : offset + length]))
+            offset += length
+        elif wire_type == 5:
+            if offset + 4 > len(buf):
+                raise ValueError(f"truncated field {field_num} at offset {start}")
+            fields.append((field_num, 5, None))
+            offset += 4
+        else:
+            # 3/4 (group start/end) and 6 (group end) are not used by these
+            # floor maps; stop rather than risk desyncing the reader.
+            raise ValueError(f"unsupported wire type {wire_type} at offset {start}")
+    return fields
+
+
+def _collect_points(sub_msg):
+    """Extract (x, y) float pairs from a boundary/points message.
+
+    Each point is a nested message with at least two float fields
+    (field 1 = x, field 2 = y). Some models add extra fields per point
+    (e.g. an index varint), so the floats are matched by field number
+    instead of by byte position.
+    """
+    points = []
+    try:
+        for field_num, wire_type, payload in _decode_message(sub_msg):
+            # Each point is a message whose first two fields are the x and y
+            # fixed32 floats. The minimum is 10 bytes (0x0d+4 + 0x15+4);
+            # some models append extra fields (e.g. a point index), so a
+            # longer payload is fine.
+            if field_num == 1 and wire_type == 2 and len(payload) >= 10:
+                x, y = decode_point2d(payload)
+                points.append((x, y))
+    except (ValueError, IndexError, struct.error):
+        return []
+    return points
+
+
+def decode_boundary_payload(payload):
+    """Decode the polygon points from a boundary/edge repeated message.
+
+    Accepts both known encodings:
+    - boundary-only payload: the first nested message (field 4) holds the
+      points (used by the model that stores obstacles in field 32).
+    - named edge/door message: field 2 = label, field 4 = points
+      (used by the model that stores edges in field 28).
+    """
+    try:
+        fields = _decode_message(payload)
+    except ValueError:
+        return []
+    for field_num, wire_type, field_payload in fields:
+        if field_num == 4 and wire_type == 2:
+            pts = _collect_points(field_payload)
+            if pts:
+                return pts
+    # Fallback: the payload itself is a points message.
+    return _collect_points(payload)
+
+
+def _decode_zone_zone_name(buf):
+    """Return the human-readable room name for a zone payload, or None.
+
+    The two models encode the display name differently:
+    - the dry-only model puts it in field 3 (zone_name) directly;
+    - the wet/deep model leaves "AZ_<n>" placeholders in fields 2/3 and puts
+      the real name in the nested string field 16.
+    Field 16 (when non-empty) is always the real name and wins.
+    """
+    real_name = None
+    try:
+        fields = _decode_message(buf)
+    except ValueError:
+        fields = []
+    for field_num, wire_type, payload in fields:
+        if field_num == 3 and wire_type == 2 and isinstance(payload, bytes):
+            name = payload.decode("utf-8", errors="replace").strip()
+            if name and not name.startswith("AZ_"):
+                real_name = real_name or name
+        elif field_num == 16 and wire_type == 2 and isinstance(payload, bytes):
+            name = payload.decode("utf-8", errors="replace").strip()
+            if name:
+                real_name = name
+    return real_name
+
+
 def decode_zone(buf):
     offset = 0
     zone = {}
@@ -123,6 +234,13 @@ def decode_zone(buf):
         boundary_data = buf[offset : offset + boundary_len]
         zone["boundary"] = decode_polygon_points(boundary_data)
         offset += boundary_len
+    # Real room name. The wet/deep model stores it in the nested string
+    # field 16, which follows field 5 and the repeated field-13 list, so it
+    # is not reachable by the sequential offsets above. Look it up directly
+    # and let it override the "AZ_<n>" placeholder.
+    real_name = _decode_zone_zone_name(buf)
+    if real_name:
+        zone["zone_name"] = real_name
     return zone
 
 
@@ -162,11 +280,11 @@ def parse_floor_map_bytes(data: bytes):
     _, offset = decode_varint(data, offset)
     _, offset = decode_varint(data, offset)
 
-    # Field 5: primary_grid
+    # Field 5: primary_grid (candidate for the rendered raster)
     _, offset = decode_varint(data, offset)
     grid_len, offset = decode_varint(data, offset)
     grid_buf = data[offset : offset + grid_len]
-    result["grid"] = decode_occupancy_grid(grid_buf)
+    grid_candidates = [decode_occupancy_grid(grid_buf)]
     offset += grid_len
 
     # Parse remaining fields
@@ -195,19 +313,28 @@ def parse_floor_map_bytes(data: bytes):
             elif field_num == 15:
                 zones.append(decode_zone(payload))
 
-            elif field_num == 32:
-                # Boundary polygons
-                inner_offset = 0
-                while inner_offset < len(payload):
-                    if payload[inner_offset] == 0x22:
-                        poly_len, inner_offset = decode_varint(payload, inner_offset + 1)
-                        poly_data = payload[inner_offset : inner_offset + poly_len]
-                        pts = decode_polygon_points(poly_data)
-                        if pts:
-                            boundaries.append(pts)
-                        inner_offset += poly_len
-                    else:
-                        inner_offset += 1
+            elif field_num == 21:
+                # Additional occupancy grid. The models do not agree on which
+                # field holds the *full* map: one model's field 5 is only a
+                # small area while its complete map is in field 21, and the
+                # other model's field 5 already is the complete map. The
+                # candidates are scored against the zone polygons below and
+                # the best one is rendered.
+                try:
+                    grid = decode_occupancy_grid(payload)
+                    if grid.get("cells"):
+                        grid_candidates.append(grid)
+                except (ValueError, struct.error):
+                    pass
+
+            elif field_num in (28, 32):
+                # Boundary/obstacle polygons. The two models store them in
+                # different fields with different point encodings:
+                #   28: named edges (field 2 = "edge"/"door")
+                #   32: plain boundaries
+                pts = decode_boundary_payload(payload)
+                if pts:
+                    boundaries.append(pts)
 
             offset += length
         elif wire_type == 5:
@@ -215,6 +342,7 @@ def parse_floor_map_bytes(data: bytes):
         else:
             break
 
+    result["grid"] = _pick_grid(grid_candidates, zones)
     result["zones"] = zones
     result["boundaries"] = boundaries
     result["pose"] = pose
@@ -225,11 +353,15 @@ def parse_floor_map_bytes(data: bytes):
 # Visualization
 # ---------------------------------------------------------------------------
 
-# Cell value -> numeric category for colormap
+# Cell value -> numeric category for colormap. The 0x0A and 0x19 values are
+# interior/free cells on some models that are otherwise unmapped; routing them
+# to the navigable category keeps them rendering as floor instead of gray.
 CELL_CATEGORIES = {
     0x00: 0,  # free
     0x01: 1,  # unknown
     0x0F: 2,  # low confidence free
+    0x0A: 3,  # navigable (alt encoding)
+    0x19: 3,  # navigable (alt encoding)
     0x4B: 3,  # navigable
     0x5A: 4,  # partial occupied 90
     0x5C: 5,  # partial occupied 92
@@ -273,13 +405,66 @@ ZONE_COLORS = [
 ]
 
 # Byte value -> category lookup table so the whole grid maps in one
-# vectorized gather instead of a per-cell Python loop.
-_CELL_LUT = np.full(256, 8, dtype=np.uint8)
+# vectorized gather instead of a per-cell Python loop. Unmapped bytes fall
+# into the "other" category (index 8).
+_CELL_LUT = np.full(256, len(CELL_COLORS) - 1, dtype=np.uint8)
 for _val, _cat in CELL_CATEGORIES.items():
     _CELL_LUT[_val] = _cat
 
 
-def build_grid_image(grid):
+def _grid_world_extent(grid):
+    """Return (x_min, x_max, y_min, y_max) of an occupancy grid in meters."""
+    res = grid.get("resolution", 0.0)
+    ox, oy = grid.get("origin", (0.0, 0.0))
+    rows = grid.get("width", 0) or 0
+    cols = grid.get("height", 0) or 0
+    return ox, ox + cols * res, oy, oy + rows * res
+
+
+def _grid_zone_coverage(grid, zones):
+    """Fraction of zone boundary points that fall inside the grid."""
+    x_min, x_max, y_min, y_max = _grid_world_extent(grid)
+    if x_min >= x_max or y_min >= y_max:
+        return 0.0
+    total = 0
+    inside = 0
+    for zone in zones:
+        for x, y in zone.get("boundary", []):
+            total += 1
+            if x_min <= x <= x_max and y_min <= y <= y_max:
+                inside += 1
+    return inside / total if total else 0.0
+
+
+def _pick_grid(grid_candidates, zones):
+    """Choose the occupancy grid that best covers the zone polygons.
+
+    Different robot models disagree about which field holds the full map, so
+    the rendered grid is selected by scoring each candidate: zone coverage
+    first (the full map contains every room), area as a tie-breaker. Falls
+    back to the first candidate when no zones are present.
+    """
+    def valid(grid):
+        # A grid whose dimensions disagree with the length of its cell buffer
+        # is a mis-parse (e.g. a mis-decoded wrapper message) and must not be
+        # chosen over the real map.
+        cells = grid.get("cells")
+        rows = grid.get("width", 0) or 0
+        cols = grid.get("height", 0) or 0
+        return cells is not None and rows * cols <= len(cells)
+
+    valid_candidates = [g for g in grid_candidates if valid(g)] or grid_candidates
+
+    def score(grid):
+        coverage = _grid_zone_coverage(grid, zones)
+        res = grid.get("resolution", 0.0) or 0.0
+        area = res * res * (grid.get("width", 0) or 0) * (grid.get("height", 0) or 0)
+        return (coverage, area)
+
+    return max(valid_candidates, key=score)
+
+
+def build_grid_image(grid) -> np.ndarray:
     """Convert raw cell bytes to a categorized numpy array.
 
     In this format the header "width" is the number of cell rows
@@ -297,7 +482,7 @@ def build_grid_image(grid):
     return _CELL_LUT[raw.reshape(rows, cols)]
 
 
-def render_floor_map(parsed, output_path=None, dpi=150, show_zones=True, show_boundaries=True):
+def render_floor_map(parsed, output_path=None, dpi=150, show_zones=True, show_boundaries=True) -> None:
     """Render the full annotated floor plan."""
     grid = parsed["grid"]
     resolution = grid["resolution"]
@@ -323,6 +508,8 @@ def render_floor_map(parsed, output_path=None, dpi=150, show_zones=True, show_bo
     # Figure setup
     fig_width = max(12, cols * resolution * 0.8)
     fig_height = max(9, rows * resolution * 0.8)
+    fig: plt.Figure
+    ax: plt.Axes
     fig, ax = plt.subplots(1, 1, figsize=(fig_width, fig_height), dpi=dpi)
 
     # Render grid (flip vertically so y increases upward)
@@ -478,6 +665,169 @@ def render_floor_map(parsed, output_path=None, dpi=150, show_zones=True, show_bo
         print(f"Saved: {output_path} ({dpi} DPI)")
 
     plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# Pillow renderer (Roborock-style palette) for the HA MQTT image path
+# ---------------------------------------------------------------------------
+
+# Pixels per meter for the raster base. The dpi arg only tags the PNG; the
+# on-screen size of the HA image entity is driven by this scale.
+_PX_PER_M = 100.0
+# Physical robot radius, used to size the sprite.
+_ROBOT_RADIUS_M = 0.16
+
+
+def render_floor_map_pillow(parsed, output=None, dpi=150, show_zones=True, show_boundaries=True) -> bytes:
+    """Render the floor plan with Pillow using the Roborock blue/pastel palette.
+
+    Writes a PNG to `output` (a path or a binary file-like object such as
+    io.BytesIO) and returns the PNG bytes. Mirrors the Roborock look: dark-blue
+    floor, light-blue walls, pastel zone fills with labels, semi-transparent
+    obstacle fills, and the white/black robot sprite oriented by pose.
+
+    `parsed` is the dict from parse_floor_map_bytes().
+    """
+    from vacuum_map_parser_base.config.color import ColorsPalette, SupportedColor
+
+    palette = ColorsPalette()
+    grid = parsed["grid"]
+    res = grid["resolution"]
+    ox, oy = grid["origin"]
+    rows = grid["width"]  # header "width" = cell rows (y-direction)
+    cols = grid["height"]  # header "height" = cell columns (x-direction)
+    x_min, x_max = ox, ox + cols * res
+    y_min, y_max = oy, oy + rows * res
+    img_w = max(1, int(round((x_max - x_min) * _PX_PER_M)))
+    img_h = max(1, int(round((y_max - y_min) * _PX_PER_M)))
+
+    def w2p(x, y):
+        """World meters (y up) -> image pixels (y down)."""
+        return (int(round((x - x_min) * _PX_PER_M)), int(round((y_max - y) * _PX_PER_M)))
+
+    # Floor base: map each cell category to a Roborock color, then upscale.
+    cat_color = {
+        0: palette.get_color(SupportedColor.MAP_OUTSIDE),  # free -> darker blue (looks "open")
+        1: palette.get_color(SupportedColor.MAP_OUTSIDE),  # unknown
+        2: palette.get_color(SupportedColor.MAP_INSIDE),  # low-confidence free
+        3: palette.get_color(SupportedColor.MAP_INSIDE),  # navigable
+        4: palette.get_color(SupportedColor.MAP_INSIDE),  # partial occupied 90
+        5: palette.get_color(SupportedColor.MAP_INSIDE),  # partial occupied 92
+        6: palette.get_color(SupportedColor.MAP_WALL),  # wall -> light blue
+        7: palette.get_color(SupportedColor.VIRTUAL_WALLS),  # virtual wall -> red
+        8: palette.get_color(SupportedColor.MAP_OUTSIDE),  # other/unknown bytes
+    }
+    rgb_lut = np.zeros((9, 3), dtype=np.uint8)
+    for cat, col in cat_color.items():
+        rgb_lut[cat] = col[:3]
+    cats = build_grid_image(grid)  # (rows, cols), one category per cell
+    rgb = rgb_lut[cats[::-1]]  # flip so world y (up) maps to the image top
+    base = Image.fromarray(rgb, "RGB").resize((img_w, img_h), Image.NEAREST)
+
+    # Zone + obstacle overlays on a transparent layer.
+    overlay = Image.new("RGBA", (img_w, img_h), (0, 0, 0, 0))
+    od = ImageDraw.Draw(overlay, "RGBA")
+    if show_zones:
+        for i, zone in enumerate(parsed["zones"]):
+            pts = zone.get("boundary", [])
+            if len(pts) < 3:
+                continue
+            color = palette.get_room_color(i + 1)[:3]
+            poly = [w2p(x, y) for x, y in pts]
+            od.polygon(poly, fill=(*color, 0x8F), outline=(*color, 0xFF))
+    if show_boundaries:
+        obst = palette.get_color(SupportedColor.OBSTACLE)
+        for boundary in parsed["boundaries"]:
+            if len(boundary) < 3:
+                continue
+            poly = [w2p(x, y) for x, y in boundary]
+            od.polygon(poly, fill=(*obst[:3], 128), outline=(*obst[:3], 160))
+
+    final = Image.alpha_composite(base.convert("RGBA"), overlay).convert("RGB")
+    fd = ImageDraw.Draw(final, "RGBA")
+
+    # Robot sprite (Roborock style), oriented by pose yaw.
+    pose = parsed.get("pose")
+    if pose:
+        px, py, pz = pose
+        cx, cy = w2p(px, py)
+        r = max(6, int(round(_ROBOT_RADIUS_M * _PX_PER_M)))
+        fill = tuple(palette.get_color(SupportedColor.ROBO)[:3])
+        outline = tuple(palette.get_color(SupportedColor.ROBO_OUTLINE)[:3])
+        _draw_robot(fd, cx, cy, math.degrees(pz), r, outline, fill)
+
+    # Zone labels on top, with a halo for legibility.
+    if show_zones:
+        font = ImageFont.load_default(size=max(10, int(round(_PX_PER_M / 6))))
+        for zone in parsed["zones"]:
+            pts = zone.get("boundary", [])
+            if len(pts) < 3:
+                continue
+            name = zone.get("zone_name") or zone.get("zone_id") or ""
+            if not name:
+                continue
+            cx = sum(w2p(x, y)[0] for x, y in pts) / len(pts)
+            cy = sum(w2p(x, y)[1] for x, y in pts) / len(pts)
+            fd.text(
+                (cx, cy),
+                name,
+                font=font,
+                fill=(0, 0, 0, 255),
+                anchor="mm",
+                stroke_width=2,
+                stroke_fill=(255, 255, 255, 255),
+            )
+
+    if output is None:
+        output = io.BytesIO()
+    final.save(output, format="PNG", dpi=(dpi, dpi))
+    if hasattr(output, "getvalue"):
+        return output.getvalue()
+    return Path(output).read_bytes()
+
+
+def _draw_robot(draw, cx, cy, heading_deg, r, outline, fill):
+    """Draw the Roborock-style vacuum sprite, oriented by heading in degrees.
+
+    Faithful port of
+    vacuum_map_parser_base.image_generator.ImageGenerator._draw_vacuum,
+    with the image-y flipped relative to world-y.
+    """
+    a = heading_deg
+    r_scaled = r / 16
+    # main body
+    draw.ellipse([cx - r, cy - r, cx + r, cy + r], outline=outline, fill=fill)
+    if r >= 8:
+        # secondary ring
+        r2 = r_scaled * 14
+        draw.ellipse([cx - r2, cy - r2, cx + r2, cy + r2], outline=outline)
+    # bin cover
+    a1 = (a + 104) / 180 * math.pi
+    a2 = (a - 104) / 180 * math.pi
+    r2 = r_scaled * 13
+    x1 = cx - r2 * math.cos(a1)
+    y1 = cy + r2 * math.sin(a1)
+    x2 = cx - r2 * math.cos(a2)
+    y2 = cy + r2 * math.sin(a2)
+    draw.line([x1, y1, x2, y2], width=1, fill=outline)
+    # lidar
+    angle = a / 180 * math.pi
+    r2 = r_scaled * 3
+    lx = cx + r2 * math.cos(angle)
+    ly = cy - r2 * math.sin(angle)
+    r3 = r_scaled * 4
+    draw.ellipse([lx - r3, ly - r3, lx + r3, ly + r3], outline=outline, fill=fill)
+    # button
+    half = (
+        (outline[0] + fill[0]) // 2,
+        (outline[1] + fill[1]) // 2,
+        (outline[2] + fill[2]) // 2,
+    )
+    r2 = r_scaled * 10
+    bx = cx + r2 * math.cos(angle)
+    by = cy - r2 * math.sin(angle)
+    r3 = r_scaled * 2
+    draw.ellipse([bx - r3, by - r3, bx + r3, by + r3], outline=half, fill=half)
 
 
 def main():
