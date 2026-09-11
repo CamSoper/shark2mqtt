@@ -153,6 +153,19 @@ Room buttons and the clean mode select appear automatically when room data is av
 
 An error device trigger fires when a new error is detected, usable in HA automations.
 
+### Map Updates
+
+The map image is built from two sources:
+
+- **Geometry** (grid, zones, boundaries) comes from the `Visual_Floor_1`
+  property file. The file is static throughout a cleaning run, so it is
+  only fetched when the device reports a newer `fileList.Visual_Floor_1`
+  `updatedAt` timestamp in its shadow — not on a timer.
+- **Robot pose** comes from the `telemetry.LiveLocation` field, which
+  updates every poll on supported models. Not all models support live
+  location (the field is simply absent from their telemetry); those fall
+  back to the static pose embedded in `Visual_Floor_1`.
+
 ### Vacuum States
 
 | State | Description |

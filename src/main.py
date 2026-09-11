@@ -6,7 +6,6 @@ import argparse
 import asyncio
 import logging
 import signal
-
 from typing import Any
 
 import aiomqtt
@@ -18,6 +17,7 @@ from .mqtt_client import MqttClient
 from .shark_auth import SharkAuth
 from .shark_device import SharkVacuum
 from .skegox_api import SkegoxApi
+from .visualize_floor_map import VisualizeFloorMap
 
 logger = logging.getLogger("shark2mqtt")
 
@@ -37,6 +37,28 @@ def _is_mqtt_auth_failure(err: aiomqtt.MqttError) -> bool:
     rc = getattr(err, "rc", None)
     return getattr(rc, "value", rc) in _MQTT_AUTH_RCS
 
+
+def _map_geometry(parsed_map: dict[str, Any]) -> dict[str, Any]:
+    """Return the static render inputs from a parsed floor map."""
+    return {
+        key: parsed_map[key]
+        for key in ("name", "map_id", "grid", "zones", "boundaries")
+    }
+
+
+def _floor_file_updated_at(raw: dict[str, Any]) -> str:
+    """Return the shadow `fileList.Visual_Floor_1.updatedAt` timestamp.
+
+    The device reports when it last rewrote the Visual_Floor_1 file.
+    The file is static throughout a cleaning run, so this timestamp is
+    the change signal for re-fetching it.
+    """
+    reported = raw.get("shadow", {}).get("properties", {}).get("reported", {})
+    file_list = reported.get("fileList", {})
+    entry = file_list.get("Visual_Floor_1", {})
+    if not isinstance(entry, dict):
+        return ""
+    return str(entry.get("updatedAt", "") or "")
 
 class CommandRouter:
     """Routes commands to the correct API based on per-device api_backend."""
@@ -109,11 +131,46 @@ async def _fetch_skegox_mard(
         debug_dump_mard_structure(body, product_name, source="Skegox MARD")
     return parse_mard(body, product_name, dsn, source="Skegox MARD")
 
+async def _fetch_skegox_visual_floor(
+    api: SkegoxApi,
+    dsn: str,
+    product_name: str,
+) -> bytes:
+    """Fetch and retrieve the Visual_Floor_1 bin file for a device.
+
+    This method fetches the Visual_Floor_1 property from Skegox API
+    and returns it as bytes.
+    """
+    try:
+        body = await api.fetch_property_file(dsn, "Visual_Floor_1", cache_bust=True)
+    except Exception as e:
+        logger.debug("Skegox Visual_Floor_1 fetch failed for %s: %s", product_name, e, exc_info=True)
+        return b""
+
+    if not body:
+        logger.debug(
+            "Skegox Visual_Floor_1 for %s (%s): not available",
+            product_name,
+            dsn,
+        )
+        return b""
+
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(
+            "Skegox Visual_Floor_1 fetched for %s (%s): %d bytes",
+            product_name,
+            dsn,
+            len(body),
+        )
+
+    return body
+
 
 async def poll_loop(
     api: SkegoxApi,
     ayla_api: AylaApi,
     mqtt: MqttClient,
+    visual_floor_map: VisualizeFloorMap,
     auth: SharkAuth,
     config: Settings,
     devices_map: dict[str, SharkVacuum],
@@ -128,6 +185,12 @@ async def poll_loop(
     # only changes on room edits/map saves, not per poll, so re-fetching
     # every cycle would waste API calls and S3 presigned URLs.
     skegox_mard_cache: dict[str, MardData] = {}
+    # Last-seen shadow `fileList.Visual_Floor_1.updatedAt` per device.
+    # The .bin is static during a run; only re-fetch when the device
+    # reports a newer file timestamp.
+    floor_map_updated_at: dict[str, str] = {}
+    floor_map_geometry: dict[str, dict[str, Any]] = {}
+    floor_map_pose: dict[str, tuple[float, float, float] | None] = {}
 
     while True:
         any_active = False
@@ -158,6 +221,77 @@ async def poll_loop(
                     if skegox_mard.rooms:
                         skegox_mard_cache[device.dsn] = skegox_mard
                 ayla = ayla_mard.get(device.dsn)
+
+                # Check if we should update the floor map. The
+                # Visual_Floor_1 file is static throughout a cleaning
+                # run, so only re-fetch when the device reports a newer
+                # file timestamp in the shadow fileList.
+                updated_at = _floor_file_updated_at(raw)
+                should_update_map = (
+                    device.dsn not in floor_map_geometry
+                    or updated_at != floor_map_updated_at.get(device.dsn, "")
+                )
+
+                if should_update_map:
+                    visual_floor_data = await _fetch_skegox_visual_floor(api, device.dsn, device.product_name)
+                    if visual_floor_data:
+                        # Parse and publish the floor map image
+                        try:
+                            parsed_map = await visual_floor_map.parse_floor_map_bytes(visual_floor_data)
+                            geometry = _map_geometry(parsed_map)
+                            # Prefer the live telemetry pose when the
+                            # device supports it.
+                            pose = device.live_location or parsed_map.get("pose")
+                            cached_geometry = floor_map_geometry.get(device.dsn)
+                            geometry_changed = cached_geometry != geometry
+                            pose_changed = (
+                                device.dsn not in floor_map_pose
+                                or floor_map_pose[device.dsn] != pose
+                            )
+
+                            if geometry_changed or pose_changed:
+                                render_geometry = geometry if geometry_changed else cached_geometry
+                                png = await visual_floor_map.render_floor_map_pillow({**render_geometry, "pose": pose})
+                                await mqtt.publish_map_image(
+                                    device, png,
+                                )
+                                floor_map_geometry[device.dsn] = geometry
+                                floor_map_pose[device.dsn] = pose
+                                logger.info(
+                                    "Published floor map image for %s (pose_changed=%s, "
+                                    "geometry_changed=%s)",
+                                    device.product_name,
+                                    pose_changed,
+                                    geometry_changed,
+                                )
+                            else:
+                                logger.debug(
+                                    "Visual_Floor_1 pose unchanged for %s; "
+                                    "skipping image publication",
+                                    device.product_name,
+                                )
+
+                            # Record the file timestamp after a valid
+                            # parse, even when the pose did not change.
+                            floor_map_updated_at[device.dsn] = updated_at
+                        except (TypeError, ValueError, OSError, TimeoutError, aiomqtt.MqttError) as e:
+                            logger.error(f"Failed to parse/publish floor map: {e}")
+
+                # Live pose updates: telemetry.LiveLocation changes every
+                # poll on supported models, so publish whenever it moves
+                # even though the Visual_Floor_1 file itself is static.
+                live_pose = device.live_location
+
+                if (live_pose and device.dsn in floor_map_geometry) and (floor_map_pose.get(device.dsn) != live_pose):
+                    png = await visual_floor_map.render_floor_map_pillow({**floor_map_geometry[device.dsn], "pose": live_pose})
+                    try:
+                        await mqtt.publish_map_image(
+                            device,
+                            png,
+                        )
+                        floor_map_pose[device.dsn] = live_pose
+                    except (TypeError, ValueError, OSError, TimeoutError, aiomqtt.MqttError) as e:
+                        logger.error(f"Failed to publish live pose for {device.product_name}: {e}")
 
                 if skegox_mard.rooms:
                     if first_poll:
@@ -257,6 +391,7 @@ async def run(config: Settings) -> None:
     """Main run loop."""
     auth = SharkAuth(config)
     mqtt = MqttClient(config)
+    visual_floor_map = VisualizeFloorMap()
 
     # --auth-once: authenticate, save tokens, exit
     if config.auth_once:
@@ -340,7 +475,7 @@ async def run(config: Settings) -> None:
             command_event = asyncio.Event()
 
             async with asyncio.TaskGroup() as tg:
-                tg.create_task(poll_loop(api, ayla_api, mqtt, auth, config, devices_map, ayla_room_data, ayla_mard, command_event))
+                tg.create_task(poll_loop(api, ayla_api, mqtt, visual_floor_map, auth, config, devices_map, ayla_room_data, ayla_mard, command_event))
                 tg.create_task(mqtt.command_listener(router, devices_map, command_event))
 
                 async def _shutdown_watcher() -> None:

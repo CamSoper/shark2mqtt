@@ -14,7 +14,7 @@ from .conftest import make_skegox_device
 
 @pytest.mark.asyncio
 async def test_poll_wakes_early_on_command_event(
-    mock_api, mock_ayla_api, mock_mqtt, mock_auth, mock_config, command_event,
+    mock_api, mock_ayla_api, mock_mqtt, mock_visualize_floor_map, mock_auth, mock_config, command_event,
 ):
     """Poll loop should wake immediately when command_event is set."""
     mock_config.poll_interval = 10  # long enough we'd notice waiting
@@ -35,7 +35,7 @@ async def test_poll_wakes_early_on_command_event(
 
     start = time.monotonic()
     task = asyncio.create_task(poll_loop(
-        mock_api, mock_ayla_api, mock_mqtt, mock_auth, mock_config,
+        mock_api, mock_ayla_api, mock_mqtt, mock_visualize_floor_map, mock_auth, mock_config,
         {}, {}, {}, command_event,
     ))
     await set_event_soon()
@@ -53,7 +53,7 @@ async def test_poll_wakes_early_on_command_event(
 
 @pytest.mark.asyncio
 async def test_poll_waits_full_interval_without_event(
-    mock_api, mock_ayla_api, mock_mqtt, mock_auth, mock_config, command_event,
+    mock_api, mock_ayla_api, mock_mqtt, mock_visualize_floor_map, mock_auth, mock_config, command_event,
 ):
     """Without the event, poll loop waits the full interval."""
     mock_config.poll_interval = 0.3
@@ -72,7 +72,7 @@ async def test_poll_waits_full_interval_without_event(
     start = time.monotonic()
     with pytest.raises(asyncio.CancelledError):
         await poll_loop(
-            mock_api, mock_ayla_api, mock_mqtt, mock_auth, mock_config,
+            mock_api, mock_ayla_api, mock_mqtt, mock_visualize_floor_map, mock_auth, mock_config,
             {}, {}, {}, command_event,
         )
     elapsed = time.monotonic() - start
@@ -84,7 +84,7 @@ async def test_poll_waits_full_interval_without_event(
 
 @pytest.mark.asyncio
 async def test_event_cleared_after_wake(
-    mock_api, mock_ayla_api, mock_mqtt, mock_auth, mock_config, command_event,
+    mock_api, mock_ayla_api, mock_mqtt, mock_visualize_floor_map, mock_auth, mock_config, command_event,
 ):
     """Event should be cleared after waking the poll loop."""
     mock_config.poll_interval = 10
@@ -108,7 +108,7 @@ async def test_event_cleared_after_wake(
 
     with pytest.raises(asyncio.CancelledError):
         await poll_loop(
-            mock_api, mock_ayla_api, mock_mqtt, mock_auth, mock_config,
+            mock_api, mock_ayla_api, mock_mqtt, mock_visualize_floor_map, mock_auth, mock_config,
             {}, {}, {}, command_event,
         )
 

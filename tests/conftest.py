@@ -53,6 +53,11 @@ def mock_mqtt():
     mqtt.publish_state.return_value = None
     return mqtt
 
+@pytest.fixture
+def mock_visualize_floor_map():
+    visualize_floor_map = AsyncMock()
+    return visualize_floor_map
+
 
 def make_skegox_device(
     dsn: str = "DSN123",

@@ -39,6 +39,40 @@ def make_mop_vacuum(
     return SharkVacuum.from_skegox(data)
 
 
+class TestLiveLocation:
+    def test_parses_json_string_pose(self):
+        # LiveLocation is a JSON-encoded string, not a nested object.
+        data = make_skegox_device()
+        data["telemetry"]["LiveLocation"] = (
+            '{"y_coord":5.185,"x_coord":-1.504,"theta":-0.289}'
+        )
+        vac = SharkVacuum.from_skegox(data)
+        assert vac.live_location == (-1.504, 5.185, -0.289)
+
+    def test_absent_key_returns_none(self):
+        # Unsupported models (e.g. RV2500AX) have no LiveLocation key.
+        vac = make_vacuum()
+        assert vac.live_location is None
+
+    def test_empty_string_returns_none(self):
+        data = make_skegox_device()
+        data["telemetry"]["LiveLocation"] = ""
+        vac = SharkVacuum.from_skegox(data)
+        assert vac.live_location is None
+
+    def test_malformed_json_returns_none(self):
+        data = make_skegox_device()
+        data["telemetry"]["LiveLocation"] = "not-json"
+        vac = SharkVacuum.from_skegox(data)
+        assert vac.live_location is None
+
+    def test_missing_coords_returns_none(self):
+        data = make_skegox_device()
+        data["telemetry"]["LiveLocation"] = '{"x_coord":1.0}'
+        vac = SharkVacuum.from_skegox(data)
+        assert vac.live_location is None
+
+
 class TestDockedState:
     def test_docked_status_docked(self):
         vac = make_vacuum(operating_mode=0, docked_status=1)

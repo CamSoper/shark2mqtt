@@ -11,7 +11,6 @@ import json
 import logging
 import secrets
 import time
-from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 import aiohttp
@@ -71,6 +70,7 @@ class SkegoxApi:
         session = await self._get_session()
         url = f"{self._region.skegox_base}{path}"
         headers = self._headers()
+        headers.update(kwargs.pop("headers", {}))
 
         async with session.request(method, url, headers=headers, **kwargs) as resp:
             if resp.status == 401:
@@ -225,7 +225,7 @@ class SkegoxApi:
         return devices
 
     async def fetch_property_file(
-        self, snd: str, property_name: str,
+        self, snd: str, property_name: str, *, cache_bust: bool = False,
     ) -> bytes | None:
         """Fetch a file-type property's content from skegox.
 
@@ -239,8 +239,14 @@ class SkegoxApi:
             f"/devicesEndUserController/{self._household_id}"
             f"/devices/{snd}/property-files?properties={property_name}"
         )
+        if cache_bust:
+            path += f"&cacheBust={time.time_ns()}"
         try:
-            wrapper = await self._request("GET", path)
+            wrapper = await self._request(
+                "GET",
+                path,
+                headers={"Cache-Control": "no-cache, no-store", "Pragma": "no-cache"},
+            )
         except Exception:
             logger.debug(
                 "Skegox property-files wrapper fetch failed for %s/%s",

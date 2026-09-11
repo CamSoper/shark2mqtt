@@ -21,6 +21,8 @@ Standalone Python service bridging SharkNinja robot vacuums to Home Assistant vi
 
 **Per-model clean commands**: Devices with `AreasToClean_V3` in their shadow (e.g., UR2360EEUS) use the V3 dict format. Devices without it (e.g., UR250BEXUS) use `Areas_To_Clean` with list format (`["Mode:Room"]`) plus `Operating_Mode: 2`. Detected automatically from shadow properties.
 
+**Map pose sources**: The `Visual_Floor_1` .bin embeds a robot pose (protobuf field 7) that is **static throughout a cleaning run** — verified byte-identical across 17 dumps of one run. The live pose is `telemetry.LiveLocation`, a **JSON-encoded string** (not a nested object) with `x_coord`/`y_coord`/`theta` in meters/radians, same frame as the grid. Not all models support it (e.g. RV2500AX has no `LiveLocation` key at all) — absence is the capability signal; fall back to the .bin pose. The .bin is only re-fetched when the shadow `fileList.Visual_Floor_1.updatedAt` timestamp changes, never on a timer.
+
 ## Releases
 
 Local git tags may be stale. When tagging a release, always check GitHub for the latest tag (e.g., `gh api repos/CamSoper/shark2mqtt/tags --jq '.[0].name'`) before determining the next version number.
