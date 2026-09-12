@@ -249,3 +249,80 @@ async def test_clean_mode_updates_state():
     assert mqtt._clean_modes[dsn] == "Matrix"
 
 
+# --- Wet/dry models (CleaningParameters present) ---
+
+
+def _make_wet_dry_device(dsn: str) -> SharkVacuum:
+    device = SharkVacuum.from_skegox(make_skegox_device(dsn=dsn))
+    device.floor_id = "FLOOR1"
+    device.rooms = ["Kitchen"]
+    device._properties["GET_CleaningParameters"] = (
+        '{"CleanStage":2,"Deep":0,"Wet":0,"Dry":1}'
+    )
+    assert device.has_wet_dry is True
+    return device
+
+
+@pytest.mark.asyncio
+async def test_wet_dry_room_button_defaults_to_dry_clean_type():
+    """Wet/dry models: room button dispatches clean_type from the select."""
+    dsn = "DSN123"
+    device = _make_wet_dry_device(dsn)
+    devices = {dsn: device}
+
+    handler = AsyncMock()
+    messages = [FakeMessage(f"shark2mqtt/{dsn}/clean_room", '{"room": "Kitchen"}')]
+
+    await _run_listener_with_messages(messages, devices, handler=handler)
+
+    handler.clean_rooms.assert_awaited_once_with(
+        dsn, rooms=["Kitchen"], floor_id="FLOOR1",
+        clean_type="dry", clean_count=1, mode="UserRoom",
+        use_v3=False,
+    )
+
+
+@pytest.mark.asyncio
+async def test_wet_dry_room_button_wet_mode():
+    """Wet mode select drives clean_type=wet on room cleans."""
+    dsn = "DSN123"
+    device = _make_wet_dry_device(dsn)
+    devices = {dsn: device}
+
+    handler = AsyncMock()
+    messages = [
+        FakeMessage(f"shark2mqtt/{dsn}/clean_mode", "Wet"),
+        FakeMessage(f"shark2mqtt/{dsn}/clean_room", '{"room": "Kitchen"}'),
+    ]
+
+    await _run_listener_with_messages(messages, devices, handler=handler)
+
+    handler.clean_rooms.assert_awaited_once_with(
+        dsn, rooms=["Kitchen"], floor_id="FLOOR1",
+        clean_type="wet", clean_count=1, mode="UserRoom",
+        use_v3=False,
+    )
+
+
+@pytest.mark.asyncio
+async def test_wet_dry_stale_matrix_mode_ignored():
+    """A stale Matrix mode must not map to UltraClean on wet/dry models."""
+    dsn = "DSN123"
+    device = _make_wet_dry_device(dsn)
+    devices = {dsn: device}
+
+    handler = AsyncMock()
+    messages = [
+        FakeMessage(f"shark2mqtt/{dsn}/clean_mode", "Matrix"),
+        FakeMessage(f"shark2mqtt/{dsn}/clean_room", '{"room": "Kitchen"}'),
+    ]
+
+    await _run_listener_with_messages(messages, devices, handler=handler)
+
+    handler.clean_rooms.assert_awaited_once_with(
+        dsn, rooms=["Kitchen"], floor_id="FLOOR1",
+        clean_type="dry", clean_count=1, mode="UserRoom",
+        use_v3=False,
+    )
+
+

@@ -30,12 +30,32 @@ def make_mop_vacuum(
     docked_status: int = 1,
     charging_status: int = 0,
 ) -> SharkVacuum:
-    """A vac+mop combo model — i.e. one whose shadow carries Flow_Mode."""
+    """A vac+mop combo model — i.e. one whose shadow carries a mop plate."""
     data = make_skegox_device(operating_mode=operating_mode)
     reported = data["shadow"]["properties"]["reported"]
     reported["DockedStatus"]["value"] = docked_status
     reported["Charging_Status"]["value"] = charging_status
     reported["Flow_Mode"] = {"value": flow_mode}
+    reported["MopPlateAttached"] = {"value": True}
+    return SharkVacuum.from_skegox(data)
+
+
+def make_wet_dry_vacuum(
+    flow_mode: int = 1,
+    operating_mode: int = 0,
+    docked_status: int = 1,
+    charging_status: int = 0,
+) -> SharkVacuum:
+    """A wet/dry model (UR2850ZEUS) — mop plate plus CleaningParameters."""
+    data = make_skegox_device(operating_mode=operating_mode)
+    reported = data["shadow"]["properties"]["reported"]
+    reported["DockedStatus"]["value"] = docked_status
+    reported["Charging_Status"]["value"] = charging_status
+    reported["Flow_Mode"] = {"value": flow_mode}
+    reported["MopPlateAttached"] = {"value": True}
+    reported["CleaningParameters"] = {
+        "value": '{"CleanStage":2,"Deep":0,"Wet":0,"Dry":1}',
+    }
     return SharkVacuum.from_skegox(data)
 
 
@@ -141,12 +161,20 @@ class TestWaterFlow:
 
 
 class TestFlowModeCapability:
-    """Vac-only models must not advertise a mop control they can't honour."""
+    """Only models with a mop plate may advertise a water flow control."""
 
-    def test_absent_flow_mode_is_not_a_capability(self):
+    def test_absent_mop_plate_is_not_a_capability(self):
         assert make_vacuum().has_flow_mode is False
 
-    def test_present_flow_mode_is_a_capability(self):
+    def test_flow_mode_alone_is_not_a_capability(self):
+        # Dry-only models (AV251WAXUS) report Flow_Mode without a mop plate.
+        data = make_skegox_device()
+        data["shadow"]["properties"]["reported"]["Flow_Mode"] = {"value": 1}
+        vac = SharkVacuum.from_skegox(data)
+        assert vac.has_flow_mode is False
+        assert "water_flow" not in vac.to_attributes_payload()
+
+    def test_present_mop_plate_is_a_capability(self):
         assert make_mop_vacuum(flow_mode=1).has_flow_mode is True
 
     def test_capability_holds_even_for_out_of_range_values(self):
@@ -158,6 +186,24 @@ class TestFlowModeCapability:
 
     def test_attributes_include_water_flow_for_mop_models(self):
         assert "water_flow" in make_mop_vacuum(flow_mode=2).to_attributes_payload()
+
+
+class TestWetDryCapability:
+    """Wet/dry models are identified by CleaningParameters presence."""
+
+    def test_absent_cleaning_parameters_is_not_wet_dry(self):
+        assert make_vacuum().has_wet_dry is False
+        assert make_mop_vacuum().has_wet_dry is False
+
+    def test_present_cleaning_parameters_is_wet_dry(self):
+        assert make_wet_dry_vacuum().has_wet_dry is True
+
+    def test_wet_dry_models_also_have_mop_plate(self):
+        # Real captures (UR2850ZEUS, RV2820YEUS) carry both properties.
+        vac = make_wet_dry_vacuum()
+        assert vac.has_wet_dry is True
+        assert vac.has_flow_mode is True
+        assert "water_flow" in vac.to_attributes_payload()
 
     @pytest.mark.asyncio
     async def test_discovery_retracts_select_for_vac_only(self, mock_config):
@@ -261,3 +307,84 @@ class TestDiscoveryDedup:
         vac.rooms = ["Kitchen"]
         await client.publish_discovery(vac)
         assert client._publish.call_count > first_count
+
+
+class TestWetDryDiscovery:
+    """Wet/dry models get a Wet/Dry clean mode select + Deep button;
+    everything else keeps Normal/Matrix and has the Deep button retracted."""
+
+    @pytest.fixture
+    def client(self, mock_config):
+        client = MqttClient(mock_config)
+        client._publish = AsyncMock()
+        return client
+
+    def _clean_mode_config(self, client):
+        for call in client._publish.call_args_list:
+            if "_clean_mode/config" in call.args[0]:
+                return call.args[1]
+        return None
+
+    def _deep_button_config(self, client):
+        for call in client._publish.call_args_list:
+            topic = call.args[0]
+            if "/button/" in topic and topic.endswith("_deep/config"):
+                return call.args[1]
+        return None
+
+    @pytest.mark.asyncio
+    async def test_wet_dry_device_gets_wet_dry_select(self, client):
+        vac = make_wet_dry_vacuum()
+        vac.rooms = ["Kitchen"]
+        await client.publish_discovery(vac)
+        config = self._clean_mode_config(client)
+        assert config["options"] == ["Wet", "Dry"]
+
+    @pytest.mark.asyncio
+    async def test_wet_dry_device_gets_deep_button(self, client):
+        vac = make_wet_dry_vacuum()
+        vac.rooms = ["Kitchen"]
+        await client.publish_discovery(vac)
+        config = self._deep_button_config(client)
+        assert config is not None
+        assert config["payload_press"] == "vacuum_and_mop"
+
+    @pytest.mark.asyncio
+    async def test_wet_dry_state_defaults_to_dry(self, client):
+        vac = make_wet_dry_vacuum()
+        vac.rooms = ["Kitchen"]
+        await client.publish_discovery(vac)
+        states = [
+            (c.args[0], c.args[1]) for c in client._publish.call_args_list
+            if c.args[0].endswith("/clean_mode/state")
+        ]
+        assert states and states[-1][1] == "Dry"
+
+    @pytest.mark.asyncio
+    async def test_dry_only_device_keeps_normal_matrix_select(self, client):
+        vac = make_vacuum()
+        vac.rooms = ["Kitchen"]
+        await client.publish_discovery(vac)
+        config = self._clean_mode_config(client)
+        assert config["options"] == ["Normal", "Matrix"]
+
+    @pytest.mark.asyncio
+    async def test_deep_button_retracted_for_dry_only_devices(self, client):
+        vac = make_vacuum()
+        vac.rooms = ["Kitchen"]
+        await client.publish_discovery(vac)
+        config = self._deep_button_config(client)
+        assert config is not None
+        assert config == ""
+
+    @pytest.mark.asyncio
+    async def test_stale_matrix_mode_falls_back_to_dry(self, client):
+        vac = make_wet_dry_vacuum()
+        vac.rooms = ["Kitchen"]
+        client._clean_modes[vac.dsn] = "Matrix"  # stale from an older model
+        await client.publish_discovery(vac)
+        states = [
+            (c.args[0], c.args[1]) for c in client._publish.call_args_list
+            if c.args[0].endswith("/clean_mode/state")
+        ]
+        assert states and states[-1][1] == "Dry"

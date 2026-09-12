@@ -561,6 +561,7 @@ class AylaApi:
         "pause": (PROP_SET_OPERATING_MODE, OperatingMode.PAUSE),
         "return_to_base": (PROP_SET_OPERATING_MODE, OperatingMode.RETURN),
         "locate": (PROP_SET_FIND_DEVICE, 1),
+        "vacuum_and_mop": (PROP_SET_OPERATING_MODE, OperatingMode.VACUUM_AND_MOP),
     }
 
     async def send_command(self, dsn: str, command: str) -> None:

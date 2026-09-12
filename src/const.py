@@ -130,6 +130,12 @@ PROP_GET_SCHEDULE = "GET_Schedule"
 # eco/normal/max scale as Power_Mode — confirmed against the SharkClean
 # app's "Water Flow Level" slider on a RV2820YEUS unit.
 PROP_GET_FLOW_MODE = "GET_Flow_Mode"
+# Wet/mop capability signals — presence in the shadow identifies
+# mop-capable (water flow level) and wet/dry-capable (wet/dry/deep
+# clean modes) device families. All dry-only models (e.g. AV251WAXUS)
+# report Flow_Mode but lack both of these.
+PROP_GET_MOP_PLATE_ATTACHED = "GET_MopPlateAttached"
+PROP_GET_CLEANING_PARAMETERS = "GET_CleaningParameters"
 
 # Write properties (used with POST /datapoints.json)
 PROP_SET_OPERATING_MODE = "SET_Operating_Mode"
