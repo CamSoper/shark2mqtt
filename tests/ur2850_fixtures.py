@@ -1,0 +1,108 @@
+"""Shadow fixtures for a UR2850ZEUS (vacuum + mop, Skegox backend).
+
+REAL samples are copied from sanitized bridge DEBUG "Shadow values" lines
+(2026-11-04), reduced to the properties the state logic reads. Values are
+verbatim; room and floor IDs were replaced with placeholders.
+
+SYNTHETIC samples are states missing from the retained logs. They are built
+from the same format, with the values observed and written up in the
+wrapper fork's docs/dev/DEVICE_FINDINGS.md. Each is marked SYNTHETIC.
+"""
+
+from __future__ import annotations
+
+import json
+from typing import Any
+
+from src.shark_device import SharkVacuum
+
+DRY_JOB = (
+    '{"areas_to_clean":{"UserRoom":["ROOM_A","ROOM_B","ROOM_C","ROOM_D","ROOM_E","ROOM_F"]},'
+    '"clean_count":1,"floor_id":"FLOOR_ID","trigger":"schedule","cleantype":"dry"}'
+)
+# SYNTHETIC: same shape as DRY_JOB, as sent by HA's clean_rooms with clean_type wet.
+WET_JOB = (
+    '{"areas_to_clean":{"UserRoom":["ROOM_A","ROOM_B","ROOM_C","ROOM_D","ROOM_E"]},'
+    '"clean_count":1,"floor_id":"FLOOR_ID","cleantype":"wet"}'
+)
+
+
+def _ex(mode: int, sys_st: int) -> str:
+    return json.dumps({"operating_mode": mode, "sys_st": sys_st}, separators=(",", ":"))
+
+
+def _sample(
+    *,
+    mode: int,
+    sys_st: int,
+    job: str,
+    docked: bool,
+    charging: bool,
+    error: int = 0,
+    mission_complete: bool = True,
+    recharging_to_resume: bool = False,
+) -> dict[str, Any]:
+    return {
+        "AreasToClean_V3": job,
+        "Charging_Status": charging,
+        "DockedStatus": docked,
+        "Error_Code": error,
+        "Flow_Mode": 0,
+        "MissionComplete": mission_complete,
+        "MopPlateAttached": True,
+        "Operating_Mode": mode,
+        "Operating_Mode_Ex": _ex(mode, sys_st),
+        "Power_Mode": 0,
+        "RechargingToResume": recharging_to_resume,
+        "Robot_Room_List": "FLOOR_ID:ROOM_A:ROOM_B:ROOM_C:ROOM_D",
+        "Warning_Code": 8,
+    }
+
+
+SAMPLES: dict[str, dict[str, Any]] = {
+    # REAL 2026-11-04 12:43:50. HA showed docked.
+    "docked_idle": _sample(mode=3, sys_st=13, job="*", docked=True, charging=True),
+    # REAL 2026-11-04 12:37:05, scheduled dry run. HA showed cleaning.
+    "cleaning_dry": _sample(mode=6, sys_st=6, job=DRY_JOB, docked=False, charging=False),
+    # REAL 2026-11-04 12:37:46. Job already cleared while returning.
+    "returning": _sample(mode=3, sys_st=7, job="*", docked=False, charging=False),
+    # REAL 2026-11-04 12:38:27. On the dock but DockedStatus still False;
+    # HA wrongly showed returning.
+    "dock_activity_no_job": _sample(mode=3, sys_st=32, job="*", docked=False, charging=False),
+    # SYNTHETIC: mop run (mode 7, sys_st 6).
+    "cleaning_wet": _sample(mode=7, sys_st=6, job=WET_JOB, docked=False, charging=False),
+    # SYNTHETIC: paused from the app or lifted (mode 0, sys_st 4, job kept).
+    "paused": _sample(mode=0, sys_st=4, job=DRY_JOB, docked=False, charging=False),
+    # SYNTHETIC: filling on the dock before a mop run (sys_st 32 with a job).
+    "dock_activity_with_job": _sample(mode=7, sys_st=32, job=WET_JOB, docked=True, charging=True),
+    # SYNTHETIC: error 9 "No dustbin" (sys_st 5).
+    "error": _sample(mode=0, sys_st=5, job=DRY_JOB, docked=False, charging=False, error=9),
+    # SYNTHETIC: mid-job recharge (job kept, docked, sys_st 13).
+    "recharge_mid_job": _sample(mode=3, sys_st=13, job=DRY_JOB, docked=True, charging=True),
+    # SYNTHETIC: the stale scheduled run of 2026-10-30. Out cleaning, but the
+    # cloud kept reporting docked + charging + RETURN; only the job was live.
+    "stale_scheduled_run": _sample(mode=3, sys_st=32, job=DRY_JOB, docked=True, charging=True),
+}
+
+
+def make_ur2850(state: str, **overrides: Any) -> SharkVacuum:
+    """Build a SharkVacuum from a named sample, wrapped like the Skegox API."""
+    reported = {**SAMPLES[state], **overrides}
+    data = {
+        "deviceId": "SND_TEST",
+        "metadata": {"deviceName": "SharkVac"},
+        "registry": {
+            "Battery_Serial_Num": "BSN-SND_TEST",
+            "Device_Model_Number": "UR2850ZEUS",
+        },
+        "telemetry": {"Battery_Capacity": 100, "RSSI": -74},
+        "connectivityStatus": {"connected": True},
+        "shadow": {
+            "properties": {
+                "reported": {
+                    k: {"value": v} for k, v in reported.items() if v is not None
+                },
+            },
+        },
+    }
+    return SharkVacuum.from_skegox(data)

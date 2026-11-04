@@ -117,6 +117,8 @@ class MqttClient:
                 "has_flow_mode": device.has_flow_mode,
                 "has_dock_tanks": device.has_dock_tanks,
                 "has_wet_dry": device.has_wet_dry,
+                "has_sys_st": device.sys_st is not None,
+                "has_job": device.job_active is not None,
             },
             sort_keys=True,
         )
@@ -432,6 +434,50 @@ class MqttClient:
             },
             retain=True,
         )
+
+        # System state code sensor — only for models whose shadow carries
+        # Operating_Mode_Ex, so other models don't get an always-empty entity.
+        if device.sys_st is not None:
+            await self._publish(
+                f"{HA_DISCOVERY_PREFIX}/sensor/{uid}_sys_st/config",
+                {
+                    "name": "System Status Code",
+                    "unique_id": f"{uid}_sys_st",
+                    "object_id": f"{slug}_sys_st",
+                    "state_topic": f"{self._prefix}/{dsn}/attributes",
+                    "value_template": "{{ value_json.sys_st }}",
+                    "entity_category": "diagnostic",
+                    "icon": "mdi:state-machine",
+                    "availability_topic": f"{self._prefix}/{dsn}/available",
+                    "payload_available": "online",
+                    "payload_not_available": "offline",
+                    "device": device.device_info,
+                },
+                retain=True,
+            )
+
+        # Clean job assigned binary sensor — only for models reporting
+        # AreasToClean_V3 in a readable form.
+        if device.job_active is not None:
+            await self._publish(
+                f"{HA_DISCOVERY_PREFIX}/binary_sensor/{uid}_job_active/config",
+                {
+                    "name": "Job Active",
+                    "unique_id": f"{uid}_job_active",
+                    "object_id": f"{slug}_job_active",
+                    "state_topic": f"{self._prefix}/{dsn}/attributes",
+                    "value_template": "{{ value_json.job_active }}",
+                    "payload_on": True,
+                    "payload_off": False,
+                    "device_class": "running",
+                    "entity_category": "diagnostic",
+                    "availability_topic": f"{self._prefix}/{dsn}/available",
+                    "payload_available": "online",
+                    "payload_not_available": "offline",
+                    "device": device.device_info,
+                },
+                retain=True,
+            )
 
         # Device trigger for error events (fires in HA automation UI)
         await self._publish(

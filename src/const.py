@@ -143,6 +143,13 @@ PROP_GET_DOCK_SENSOR_DATA = "GET_DockSensorData"
 # report Flow_Mode but lack both of these.
 PROP_GET_MOP_PLATE_ATTACHED = "GET_MopPlateAttached"
 PROP_GET_CLEANING_PARAMETERS = "GET_CleaningParameters"
+# Extended operating state, a JSON string such as
+# '{"operating_mode":6,"sys_st":6}' (observed on UR2850ZEUS).
+PROP_GET_OPERATING_MODE_EX = "GET_Operating_Mode_Ex"
+# Current clean job: a JSON string with areas_to_clean, cleantype and
+# trigger while a job exists, or the bare string "*" when there is none.
+PROP_GET_AREAS_TO_CLEAN_V3 = "GET_AreasToClean_V3"
+PROP_GET_RECHARGING_TO_RESUME = "GET_RechargingToResume"
 
 # Write properties (used with POST /datapoints.json)
 PROP_SET_OPERATING_MODE = "SET_Operating_Mode"
