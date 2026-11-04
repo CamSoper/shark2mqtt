@@ -73,6 +73,7 @@ volumes:
 | `MQTT_PREFIX` | No | `shark2mqtt` | MQTT topic prefix |
 | `POLL_INTERVAL` | No | `300` | Polling interval in seconds |
 | `POLL_INTERVAL_ACTIVE` | No | `20` | Polling interval while cleaning |
+| `PAUSE_OPERATING_MODE` | No | `1` | `Operating_Mode` value sent for pause: `1` or `0`. Some models ignore `1`; `0` is also "stop" on many models, so test it first |
 | `TOKEN_DIR` | No | `/data` | Directory for persisted auth tokens |
 | `LOG_LEVEL` | No | `INFO` | `DEBUG`, `INFO`, `WARNING`, or `ERROR` |
 | `AYLA_MERGE` | No | `false` | Half-migrated accounts: also publish robots that are only on the older Ayla backend (see [#46](https://github.com/CamSoper/shark2mqtt/issues/46)) |
