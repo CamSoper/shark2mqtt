@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     poll_interval: int = 300
     poll_interval_active: int = 20
 
+    # When false, never launch the automated Chromium login. An expired or
+    # missing token then fails with a clear "log in again" error instead,
+    # for setups where tokens come from a manual login.
+    browser_login: bool = True
+
     # Token persistence
     token_dir: str = "/data"
 

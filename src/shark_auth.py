@@ -98,7 +98,7 @@ class SharkAuth:
         Auth cascade:
         1. Load cached tokens from disk
         2. Try Auth0 refresh_token grant
-        3. Launch headless browser (if available)
+        3. Launch headless browser (if available and browser_login is on)
 
         Raises SharkAuthError if all methods fail.
         """
@@ -134,6 +134,13 @@ class SharkAuth:
 
         # Step 3: Try browser auth
         try:
+            if not self._config.browser_login:
+                raise SharkAuthError(
+                    "Shark login needed: no usable token, and browser login "
+                    "is turned off (BROWSER_LOGIN=false). Put a fresh "
+                    "shark2mqtt_tokens.json in the token directory, then "
+                    "restart."
+                )
             await self._browser_authenticate()
             self._consecutive_failures = 0
             return self._tokens.auth0_id_token  # type: ignore[return-value]
