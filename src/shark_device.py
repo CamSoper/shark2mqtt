@@ -31,6 +31,7 @@ from .const import (
     PROP_GET_OPERATING_MODE,
     PROP_GET_OPERATING_MODE_EX,
     PROP_GET_POWER_MODE,
+    PROP_GET_RECHARGING_TO_RESUME,
     PROP_GET_RECOMMEND_RANDR,
     PROP_GET_REPLACE_BATTERY,
     PROP_GET_ROBOT_FIRMWARE_VERSION,
@@ -41,6 +42,12 @@ from .const import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Operating_Mode_Ex sys_st values used for state (observed on UR2850ZEUS).
+SYS_ST_PAUSED = 4
+SYS_ST_RETURNING = 7
+SYS_ST_DOCKED = 13
+SYS_ST_DOCK_ACTIVITY = 32
 
 
 class SharkVacuum:
@@ -265,6 +272,11 @@ class SharkVacuum:
         if self.error_code != 0:
             return "error"
 
+        if self.uses_job_state:
+            job_state = self._job_aware_state()
+            if job_state is not None:
+                return job_state
+
         mode = self.operating_mode
         if mode is None:
             return "idle"
@@ -274,6 +286,33 @@ class SharkVacuum:
             return "docked"
 
         return OPERATING_MODE_TO_HA_STATE.get(mode, "idle")
+
+    def _job_aware_state(self) -> str | None:
+        """State from sys_st + the job, for models that report both.
+
+        Ignores DockedStatus, Charging_Status and Operating_Mode, which go
+        stale on these models (e.g. "docked" for a whole scheduled run, or
+        not docked while sitting on the dock). Returns None to fall back to
+        the Operating_Mode mapping for combinations not covered here.
+        """
+        sys_st = self.sys_st
+        if self.job_active:
+            if sys_st == SYS_ST_PAUSED:
+                return "paused"
+            if sys_st == SYS_ST_RETURNING:
+                return "returning"
+            # Back on the dock mid-job (e.g. recharging to resume). The job
+            # still counts as active for polling.
+            if sys_st == SYS_ST_DOCKED or self._get_prop(PROP_GET_RECHARGING_TO_RESUME) is True:
+                return "docked"
+            # Cleaning, and dock activity (filling, washing) during a job,
+            # which HA has no state for.
+            return "cleaning"
+        if sys_st == SYS_ST_RETURNING:
+            return "returning"
+        if sys_st in (SYS_ST_DOCKED, SYS_ST_DOCK_ACTIVITY):
+            return "docked"
+        return None
 
     @property
     def battery_level(self) -> int:

@@ -277,7 +277,7 @@ async def poll_loop(
                 )
                 await mqtt.publish_state(device, prev_error=prev_errors)
                 prev_errors[device.dsn] = device.error_code
-                if device.ha_state != "docked":
+                if device.ha_state != "docked" or device.job_active:
                     any_active = True
 
             # --- Ayla fallback (only when skegox has no devices) ---
@@ -314,7 +314,7 @@ async def poll_loop(
                         await mqtt.publish_discovery(device)
                         await mqtt.publish_state(device, prev_error=prev_errors)
                         prev_errors[device.dsn] = device.error_code
-                        if device.ha_state != "docked":
+                        if device.ha_state != "docked" or device.job_active:
                             any_active = True
                 except Exception:
                     logger.warning("Ayla device fetch failed", exc_info=True)

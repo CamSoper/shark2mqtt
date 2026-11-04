@@ -85,10 +85,10 @@ SAMPLES: dict[str, dict[str, Any]] = {
 }
 
 
-def make_ur2850(state: str, **overrides: Any) -> SharkVacuum:
-    """Build a SharkVacuum from a named sample, wrapped like the Skegox API."""
+def ur2850_raw(state: str, **overrides: Any) -> dict[str, Any]:
+    """A named sample wrapped like a Skegox API device. None drops a field."""
     reported = {**SAMPLES[state], **overrides}
-    data = {
+    return {
         "deviceId": "SND_TEST",
         "metadata": {"deviceName": "SharkVac"},
         "registry": {
@@ -105,4 +105,8 @@ def make_ur2850(state: str, **overrides: Any) -> SharkVacuum:
             },
         },
     }
-    return SharkVacuum.from_skegox(data)
+
+
+def make_ur2850(state: str, **overrides: Any) -> SharkVacuum:
+    """Build a SharkVacuum from a named sample."""
+    return SharkVacuum.from_skegox(ur2850_raw(state, **overrides))
