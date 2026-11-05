@@ -198,3 +198,15 @@ def test_legacy_robot_states_match_v155(mode):
         reported["Error_Code"]["value"] = error
         vac = SharkVacuum.from_skegox(data)
         assert vac.ha_state == expected, (mode, docked, charging, error)
+
+
+def test_real_wet_run_from_app():
+    """2026-11-05 mop run started in the Shark app: cleaning, wet, no trigger,
+    and MissionComplete already True mid-run."""
+    vac = make_ur2850("cleaning_wet")
+    assert vac.ha_state == "cleaning"
+    assert vac.job_clean_type == "wet"
+    assert vac.job_trigger is None
+    assert vac.fan_speed == "max"
+    assert vac.water_flow == "normal"
+    assert vac.to_attributes_payload()["operating_mode"] == "MOP"

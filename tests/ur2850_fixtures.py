@@ -1,7 +1,7 @@
 """Shadow fixtures for a UR2850ZEUS (vacuum + mop, Skegox backend).
 
 REAL samples are copied from sanitized bridge DEBUG "Shadow values" lines
-(2026-11-04), reduced to the properties the state logic reads. Values are
+(2026-11-04 and 2026-11-05), reduced to the properties the state logic reads. Values are
 verbatim; room and floor IDs were replaced with placeholders.
 
 SYNTHETIC samples are states missing from the retained logs. They are built
@@ -20,9 +20,10 @@ DRY_JOB = (
     '{"areas_to_clean":{"UserRoom":["ROOM_A","ROOM_B","ROOM_C","ROOM_D","ROOM_E","ROOM_F"]},'
     '"clean_count":1,"floor_id":"FLOOR_ID","trigger":"schedule","cleantype":"dry"}'
 )
-# SYNTHETIC: same shape as DRY_JOB, as sent by HA's clean_rooms with clean_type wet.
+# REAL 2026-11-05: one-room mop run started from the Shark app. No "trigger"
+# key, unlike the scheduled DRY_JOB.
 WET_JOB = (
-    '{"areas_to_clean":{"UserRoom":["ROOM_A","ROOM_B","ROOM_C","ROOM_D","ROOM_E"]},'
+    '{"areas_to_clean":{"UserRoom":["ROOM_D"]},'
     '"clean_count":1,"floor_id":"FLOOR_ID","cleantype":"wet"}'
 )
 
@@ -41,18 +42,20 @@ def _sample(
     error: int = 0,
     mission_complete: bool = True,
     recharging_to_resume: bool = False,
+    flow_mode: int = 0,
+    power_mode: int = 0,
 ) -> dict[str, Any]:
     return {
         "AreasToClean_V3": job,
         "Charging_Status": charging,
         "DockedStatus": docked,
         "Error_Code": error,
-        "Flow_Mode": 0,
+        "Flow_Mode": flow_mode,
         "MissionComplete": mission_complete,
         "MopPlateAttached": True,
         "Operating_Mode": mode,
         "Operating_Mode_Ex": _ex(mode, sys_st),
-        "Power_Mode": 0,
+        "Power_Mode": power_mode,
         "RechargingToResume": recharging_to_resume,
         "Robot_Room_List": "FLOOR_ID:ROOM_A:ROOM_B:ROOM_C:ROOM_D",
         "Warning_Code": 8,
@@ -69,8 +72,12 @@ SAMPLES: dict[str, dict[str, Any]] = {
     # REAL 2026-11-04 12:38:27. On the dock but DockedStatus still False;
     # HA wrongly showed returning.
     "dock_activity_no_job": _sample(mode=3, sys_st=32, job="*", docked=False, charging=False),
-    # SYNTHETIC: mop run (mode 7, sys_st 6).
-    "cleaning_wet": _sample(mode=7, sys_st=6, job=WET_JOB, docked=False, charging=False),
+    # REAL 2026-11-05 11:43:27, mop run started from the Shark app. HA showed
+    # cleaning. MissionComplete is True mid-run, so it can't mean "finished".
+    "cleaning_wet": _sample(
+        mode=7, sys_st=6, job=WET_JOB, docked=False, charging=False,
+        flow_mode=1, power_mode=2,
+    ),
     # SYNTHETIC: paused from the app or lifted (mode 0, sys_st 4, job kept).
     "paused": _sample(mode=0, sys_st=4, job=DRY_JOB, docked=False, charging=False),
     # SYNTHETIC: filling on the dock before a mop run (sys_st 32 with a job).
