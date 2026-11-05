@@ -111,6 +111,10 @@ JOB_AWARE_STATES = {
     "error": "error",
     "recharge_mid_job": "docked",
     "stale_scheduled_run": "cleaning",  # today: docked for the whole run
+    "returning_to_empty": "returning",
+    "emptying_mid_job": "docked",  # today: returning
+    "error_while_emptying": "error",
+    "dock_activity_after_error": "docked",  # today: returning
 }
 
 
@@ -131,6 +135,20 @@ class TestJobAwareState:
         # run; only the job was live.
         vac = make_ur2850("stale_scheduled_run")
         assert vac.is_docked and vac.operating_mode.name == "RETURN"
+        assert vac.ha_state == "cleaning"
+
+    def test_emptying_mid_job_is_docked_and_keeps_job(self):
+        # Real 12:49:48 sample: back on the dock to empty the bin, job kept,
+        # DockedStatus still False. 1.5.5-claude.2 showed "cleaning" here.
+        vac = make_ur2850("emptying_mid_job")
+        assert vac.is_docked is False
+        assert vac.is_evacuating is True
+        assert vac.job_active is True
+        assert vac.ha_state == "docked"
+
+    def test_dock_activity_with_job_but_not_evacuating_is_cleaning(self):
+        # Guards the stale-run case: 32 + job without Evacuating stays cleaning.
+        vac = make_ur2850("emptying_mid_job", Evacuating=False)
         assert vac.ha_state == "cleaning"
 
     def test_paused_job_in_other_sys_st_is_not_paused(self):

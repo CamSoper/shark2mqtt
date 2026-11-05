@@ -42,6 +42,7 @@ def _sample(
     error: int = 0,
     mission_complete: bool = True,
     recharging_to_resume: bool = False,
+    evacuating: bool = False,
     flow_mode: int = 0,
     power_mode: int = 0,
 ) -> dict[str, Any]:
@@ -50,6 +51,7 @@ def _sample(
         "Charging_Status": charging,
         "DockedStatus": docked,
         "Error_Code": error,
+        "Evacuating": evacuating,
         "Flow_Mode": flow_mode,
         "MissionComplete": mission_complete,
         "MopPlateAttached": True,
@@ -77,6 +79,29 @@ SAMPLES: dict[str, dict[str, Any]] = {
     "cleaning_wet": _sample(
         mode=7, sys_st=6, job=WET_JOB, docked=False, charging=False,
         flow_mode=1, power_mode=2,
+    ),
+    # REAL 2026-11-05 12:46:21, scheduled dry run. Heading back mid-job to
+    # empty the bin (Evacuating already True, job kept).
+    "returning_to_empty": _sample(
+        mode=3, sys_st=7, job=DRY_JOB, docked=False, charging=False,
+        evacuating=True, mission_complete=False, power_mode=2,
+    ),
+    # REAL 2026-11-05 12:49:48. On the dock emptying mid-job; DockedStatus
+    # still False. HA showed cleaning (fixed: docked).
+    "emptying_mid_job": _sample(
+        mode=3, sys_st=32, job=DRY_JOB, docked=False, charging=False,
+        evacuating=True, mission_complete=False, power_mode=2,
+    ),
+    # REAL 2026-11-05 12:50:29. Error 9 "No dustbin" while emptying.
+    "error_while_emptying": _sample(
+        mode=0, sys_st=5, job=DRY_JOB, docked=True, charging=False, error=9,
+        evacuating=True, mission_complete=False, power_mode=2,
+    ),
+    # REAL 2026-11-05 12:50:50. Error cleared, the robot dropped the job,
+    # still dock activity.
+    "dock_activity_after_error": _sample(
+        mode=3, sys_st=32, job="*", docked=False, charging=False,
+        mission_complete=False, power_mode=2,
     ),
     # SYNTHETIC: paused from the app or lifted (mode 0, sys_st 4, job kept).
     "paused": _sample(mode=0, sys_st=4, job=DRY_JOB, docked=False, charging=False),

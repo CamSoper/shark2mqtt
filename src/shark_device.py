@@ -305,8 +305,14 @@ class SharkVacuum:
             # still counts as active for polling.
             if sys_st == SYS_ST_DOCKED or self._get_prop(PROP_GET_RECHARGING_TO_RESUME) is True:
                 return "docked"
-            # Cleaning, and dock activity (filling, washing) during a job,
-            # which HA has no state for.
+            # Back on the dock to empty the bin mid-job: dock activity while
+            # Evacuating. Without Evacuating, 32 has also been seen while the
+            # robot was out cleaning (stale scheduled run), so that stays
+            # "cleaning".
+            if sys_st == SYS_ST_DOCK_ACTIVITY and self.is_evacuating:
+                return "docked"
+            # Cleaning, and other dock activity (filling, washing) during a
+            # job, which HA has no state for.
             return "cleaning"
         if sys_st == SYS_ST_RETURNING:
             return "returning"
