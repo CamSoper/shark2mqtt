@@ -80,19 +80,19 @@ See [`config.example.env`](config.example.env) for a ready-to-edit template.
 
 ### Docker secrets
 
-Docker Compose and Swarm can provide credentials as files mounted in \`/run/secrets\`.
+Docker Compose and Swarm can provide credentials as files mounted in `/run/secrets`.
 Use the existing environment variable names as the secret file names, such as
-\`SHARK_PASSWORD\` and \`MQTT_PASSWORD\`. No \`_FILE\` variables or entrypoint changes
+`SHARK_PASSWORD` and `MQTT_PASSWORD`. No `_FILE` variables or entrypoint changes
 are needed.
 
-Configuration precedence is **environment variables > \`.env\` > Docker secrets**.
+Configuration precedence is **environment variables > `.env` > Docker secrets**.
 To use a secret, omit the corresponding variable from the environment and any
-\`.env\` file entirely. Even an empty environment variable overrides a secret.
+`.env` file entirely. Even an empty environment variable overrides a secret.
 
-For a Swarm stack, first create \`SHARK_PASSWORD\` and \`MQTT_PASSWORD\` as external
+For a Swarm stack, first create `SHARK_PASSWORD` and `MQTT_PASSWORD` as external
 Docker secrets, then attach them to the service:
 
-\`\`\`yaml
+```yaml
 services:
   shark2mqtt:
     image: ghcr.io/camsoper/shark2mqtt:latest
@@ -114,7 +114,7 @@ secrets:
 
 volumes:
   shark2mqtt_data:
-\`\`\`
+```
 
 The running image must include Docker secrets support; rebuild from this source
 until it is included in a published image.
