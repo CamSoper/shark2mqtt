@@ -78,6 +78,47 @@ volumes:
 
 See [`config.example.env`](config.example.env) for a ready-to-edit template.
 
+### Docker secrets
+
+Docker Compose and Swarm can provide credentials as files mounted in `/run/secrets`.
+Use the existing environment variable names as the secret file names, such as
+`SHARK_PASSWORD` and `MQTT_PASSWORD`. No `_FILE` variables or entrypoint changes
+are needed.
+
+Configuration precedence is **environment variables > `.env` > Docker secrets**.
+To use a secret, omit the corresponding variable from the environment and any
+`.env` file entirely. Even an empty environment variable overrides a secret.
+
+For a Swarm stack, first create `SHARK_PASSWORD` and `MQTT_PASSWORD` as external
+Docker secrets, then attach them to the service:
+
+```yaml
+services:
+  shark2mqtt:
+    image: ghcr.io/camsoper/shark2mqtt:latest
+    environment:
+      SHARK_USERNAME: user@example.com
+      MQTT_HOST: mqtt.example.com
+      MQTT_USERNAME: shark2mqtt
+    secrets:
+      - SHARK_PASSWORD
+      - MQTT_PASSWORD
+    volumes:
+      - shark2mqtt_data:/data
+
+secrets:
+  SHARK_PASSWORD:
+    external: true
+  MQTT_PASSWORD:
+    external: true
+
+volumes:
+  shark2mqtt_data:
+```
+
+The running image must include Docker secrets support; rebuild from this source
+until it is included in a published image.
+
 ## Authentication
 
 shark2mqtt authenticates to SharkNinja's cloud using a browser-based Auth0 flow. The container runs a headed Chromium browser inside a virtual display (`xvfb`) to complete login automatically.
