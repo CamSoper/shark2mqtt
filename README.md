@@ -148,8 +148,12 @@ Each vacuum is automatically discovered by Home Assistant with the following ent
 | `button.<name>_clean_<room>` | Button | One-tap room cleaning (one per room) |
 | `select.<name>_clean_mode` | Select | Normal or Matrix (double-pass) cleaning mode |
 | `select.<name>_water_flow` | Select | Mop water flow level (vac+mop models only) |
+| `binary_sensor.<name>_clean_tank_empty` | Binary Sensor | Base's clean water tank empty or removed (mop-washing bases only) |
+| `binary_sensor.<name>_dirty_tank_full` | Binary Sensor | Base's dirty water tank full or removed (mop-washing bases only) |
 
 Room buttons and the clean mode select appear automatically when room data is available from the Shark cloud. The water flow select appears only on models that report `Flow_Mode` -- i.e. those with a mop tank -- so vacuum-only models won't get a control their hardware ignores.
+
+The tank sensors appear only on robots whose shadow reports `DockSensorData` (bases that wash the mop and refill the robot). The base only updates them while the robot is docked, so expect a change to show up at the next poll after the robot returns.
 
 An error device trigger fires when a new error is detected, usable in HA automations.
 

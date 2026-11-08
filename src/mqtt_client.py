@@ -80,6 +80,7 @@ class MqttClient:
                 "device": device.device_info,
                 "rooms": device.rooms,
                 "has_flow_mode": device.has_flow_mode,
+                "has_dock_tanks": device.has_dock_tanks,
             },
             sort_keys=True,
         )
@@ -304,6 +305,37 @@ class MqttClient:
             },
             retain=True,
         )
+
+        # Base water tanks (mop-washing docks only). Like the water flow
+        # select, retract the configs on models without them so an entity
+        # published by mistake never lingers in HA.
+        for key, name, field, icon in (
+            ("clean_tank_empty", "Clean Water Tank Empty", "clean_tank_empty", "mdi:water-off"),
+            ("dirty_tank_full", "Dirty Water Tank Full", "dirty_tank_full", "mdi:water-alert"),
+        ):
+            topic = f"{HA_DISCOVERY_PREFIX}/binary_sensor/{uid}_{key}/config"
+            if device.has_dock_tanks:
+                await self._publish(
+                    topic,
+                    {
+                        "name": name,
+                        "unique_id": f"{uid}_{key}",
+                        "object_id": f"{slug}_{key}",
+                        "state_topic": f"{self._prefix}/{dsn}/attributes",
+                        "value_template": f"{{{{ value_json.{field} }}}}",
+                        "payload_on": True,
+                        "payload_off": False,
+                        "device_class": "problem",
+                        "icon": icon,
+                        "availability_topic": f"{self._prefix}/{dsn}/available",
+                        "payload_available": "online",
+                        "payload_not_available": "offline",
+                        "device": device.device_info,
+                    },
+                    retain=True,
+                )
+            else:
+                await self._publish(topic, "", retain=True)
 
         # Lifetime runtime sensor (unit unconfirmed upstream, exposed raw)
         await self._publish(
