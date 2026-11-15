@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import re
@@ -32,6 +33,7 @@ class MqttClient:
         self._water_flow_overrides: dict[str, str] = {}  # device_id -> user-set flow level
         self._published_rooms: dict[str, set[str]] = {}  # device_id -> room slugs
         self._discovery_sigs: dict[str, str] = {}  # device_id -> last published signature
+        self._map_sigs: dict[str, str] = {}  # device_id -> hash of last published floor plan
 
     async def __aenter__(self) -> MqttClient:
         will = aiomqtt.Will(
@@ -65,6 +67,37 @@ class MqttClient:
         await self._client.publish(topic, msg, qos=1, retain=retain)
 
     # --- HA Autodiscovery ---
+
+    async def publish_map(self, device: SharkVacuum, svg: str) -> None:
+        """Publish the floor plan as an HA MQTT image entity (retained SVG).
+
+        The image is only re-sent when the plan actually changes: MARD is
+        fetched once per session and only changes when rooms are edited in
+        the Shark app.
+        """
+        dsn = device.dsn
+        digest = hashlib.sha256(svg.encode("utf-8")).hexdigest()
+        if self._map_sigs.get(dsn) == digest:
+            return
+        uid = f"shark2mqtt_{dsn}"
+        slug = re.sub(r"[^a-z0-9]+", "_", device.product_name.lower()).strip("_")
+        topic = f"{self._prefix}/{dsn}/map"
+        await self._publish(
+            f"{HA_DISCOVERY_PREFIX}/image/{uid}_map/config",
+            {
+                "name": "Floor plan",
+                "unique_id": f"{uid}_map",
+                "object_id": f"{slug}_floor_plan",
+                "image_topic": topic,
+                "content_type": "image/svg+xml",
+                "icon": "mdi:floor-plan",
+                "device": device.device_info,
+            },
+            retain=True,
+        )
+        await self._publish(topic, svg, retain=True)
+        self._map_sigs[dsn] = digest
+        logger.info("Published floor plan for %s (%s), %d bytes", device.product_name, dsn, len(svg))
 
     async def publish_discovery(self, device: SharkVacuum) -> None:
         """Publish HA MQTT autodiscovery configs for a vacuum and its sensors."""

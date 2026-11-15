@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     # Logging
     log_level: str = "INFO"
 
+    # Floor plan image entity (rendered from the robot's MARD room file)
+    map_image: bool = True
+    map_show_scan: bool = False
+
     # Operation modes
     auth_once: bool = False
     offline: bool = False

@@ -51,6 +51,8 @@ class MardData(NamedTuple):
     name_map: dict[str, str]
     rooms: list[str]
     floor_id: str | None
+    # The file itself, kept so the floor plan can be rendered (map_render.py).
+    raw: bytes | None = None
 
 
 _EMPTY_MARD = MardData({}, [], None)
@@ -111,7 +113,7 @@ def parse_mard(
             source, product_name, dsn, rooms,
         )
 
-    return MardData(name_map, rooms, mard_floor_id)
+    return MardData(name_map, rooms, mard_floor_id, body)
 
 
 def debug_dump_mard_structure(
