@@ -1,11 +1,13 @@
-"""Configuration via environment variables."""
+"""Configuration via environment variables, .env, and Docker secrets."""
+
+from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    """Application settings loaded from environment variables."""
+    """Application settings loaded from environment variables and secret files."""
 
     # Shark account
     shark_username: str
@@ -32,8 +34,17 @@ class Settings(BaseSettings):
     # Logging
     log_level: str = "INFO"
 
+    # Floor plan image entity (rendered from the robot's MARD room file)
+    map_image: bool = True
+    map_show_scan: bool = False
+
     # Operation modes
     auth_once: bool = False
     offline: bool = False
 
-    model_config = {"env_file": ".env", "env_prefix": "", "case_sensitive": False}
+    model_config = {
+        "env_file": ".env",
+        "env_prefix": "",
+        "case_sensitive": False,
+        "secrets_dir": "/run/secrets" if Path("/run/secrets").is_dir() else None,
+    }

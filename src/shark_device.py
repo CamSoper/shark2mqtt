@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -13,8 +14,10 @@ from .const import (
     PowerMode,
     PROP_GET_BATTERY_CAPACITY,
     PROP_GET_CHARGING_STATUS,
+    PROP_GET_CLEANING_PARAMETERS,
     PROP_GET_DEVICE_MODEL_NUMBER,
     PROP_GET_DOCK_ERROR_CODE,
+    PROP_GET_DOCK_SENSOR_DATA,
     PROP_GET_DOCK_KNOB_STATUS,
     PROP_GET_DOCKED_STATUS,
     PROP_GET_ERROR_CODE,
@@ -23,6 +26,7 @@ from .const import (
     PROP_GET_EVACUATING,
     PROP_GET_EXTENDED_ERROR_CODE,
     PROP_GET_FLOW_MODE,
+    PROP_GET_MOP_PLATE_ATTACHED,
     PROP_GET_OPERATING_MODE,
     PROP_GET_POWER_MODE,
     PROP_GET_RECOMMEND_RANDR,
@@ -312,13 +316,70 @@ class SharkVacuum:
 
     @property
     def has_flow_mode(self) -> bool:
-        """Whether this model has a mop tank with a water flow setting.
+        """Whether this model has a mop plate with a water flow setting.
 
-        Only vac+mop combo models carry Flow_Mode in their shadow. Both
-        backends land properties in `_properties` under the `GET_` name,
-        so this works for skegox and Ayla alike.
+        Flow_Mode alone is NOT a reliable signal — dry-only models
+        (e.g. AV251WAXUS) and wet/dry models (UR2850ZEUS) also report it.
+        MopPlateAttached is only present on models with a physical mop
+        plate, so it is the capability gate for the water flow level
+        select. Both backends land properties in `_properties` under the
+        `GET_` name, so this works for skegox and Ayla alike.
         """
-        return PROP_GET_FLOW_MODE in self._properties
+        return PROP_GET_MOP_PLATE_ATTACHED in self._properties
+
+    @property
+    def has_wet_dry(self) -> bool:
+        """Whether this model supports wet/dry/deep clean modes.
+
+        CleaningParameters (e.g. '{"Dry":1,"Wet":0,"Deep":0,"CleanStage":2}')
+        is only present on wet/dry-capable models such as the UR2850ZEUS
+        and RV2820YEUS. Its value is live clean state, not a capability
+        flag — only the property's PRESENCE is the signal.
+        """
+        return PROP_GET_CLEANING_PARAMETERS in self._properties
+
+    @property
+    def dock_sensor_data(self) -> dict[str, Any]:
+        """The base's water tank sensors, parsed from DockSensorData.
+
+        The property is a JSON string on the models seen so far; a dict is
+        accepted too. Anything unparseable reads as no data.
+        """
+        raw = self._get_prop(PROP_GET_DOCK_SENSOR_DATA)
+        if isinstance(raw, dict):
+            return raw
+        if not isinstance(raw, str) or not raw.strip():
+            return {}
+        try:
+            parsed = json.loads(raw)
+        except ValueError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+
+    @property
+    def has_dock_tanks(self) -> bool:
+        """Whether this robot's base reports clean/dirty water tanks."""
+        data = self.dock_sensor_data
+        return isinstance(data.get("CleanTank"), dict) or isinstance(data.get("GreyTank"), dict)
+
+    def _tank_flag(self, tank: str, flag: str) -> bool | None:
+        value = self.dock_sensor_data.get(tank)
+        if not isinstance(value, dict) or flag not in value:
+            return None
+        try:
+            return int(value[flag]) != 0
+        except (TypeError, ValueError):
+            return None
+
+    @property
+    def clean_tank_empty(self) -> bool | None:
+        """Clean water tank empty (or removed); None if not reported."""
+        return self._tank_flag("CleanTank", "Empty")
+
+    @property
+    def dirty_tank_full(self) -> bool | None:
+        """Dirty (grey) water tank full (or removed); None if not reported."""
+        return self._tank_flag("GreyTank", "Full")
 
     @property
     def rssi(self) -> int:
@@ -402,7 +463,8 @@ class SharkVacuum:
             "error_code": self.error_code,
             "error_text": self.error_text,
             "rssi": self.rssi,
-            "operating_mode": self.operating_mode.name if self.operating_mode else "unknown",
+            # STOP is 0, which is falsy, so compare against None explicitly.
+            "operating_mode": self.operating_mode.name if self.operating_mode is not None else "unknown",
             "is_docked": self.is_docked,
             "firmware_version": self.firmware_version,
             "model_number": self.model_number,
@@ -417,10 +479,15 @@ class SharkVacuum:
             "replace_battery": self.replace_battery,
             "recommend_rest_and_recharge": self.recommend_rest_and_recharge,
         }
-        # Vac-only models have no mop tank, so reporting a water flow level
-        # for them would be inventing a setting the hardware doesn't have.
+        # Models without a mop plate (vac-only or wet/dry models whose
+        # Flow_Mode is unused) would get an invented water flow setting.
         if self.has_flow_mode:
             attrs["water_flow"] = self.water_flow
+        # Only bases with water tanks report these, so vac-only and
+        # self-empty-only models don't get sensors their hardware can't fill.
+        if self.has_dock_tanks:
+            attrs["clean_tank_empty"] = self.clean_tank_empty
+            attrs["dirty_tank_full"] = self.dirty_tank_full
         if self.rooms:
             attrs["rooms"] = self.rooms
             attrs["floor_id"] = self.floor_id

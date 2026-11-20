@@ -130,6 +130,19 @@ PROP_GET_SCHEDULE = "GET_Schedule"
 # eco/normal/max scale as Power_Mode — confirmed against the SharkClean
 # app's "Water Flow Level" slider on a RV2820YEUS unit.
 PROP_GET_FLOW_MODE = "GET_Flow_Mode"
+# Water tank sensors on mop-washing bases (NeverTouch-style docks), as a JSON
+# string, e.g. {"CleanTank":{"Install":0,"Empty":0},"GreyTank":{"Install":0,"Full":0}}.
+# Confirmed on an AV301WXEUK by removing each tank with the robot docked:
+# CleanTank.Empty -> 1 when the clean water tank is empty or removed,
+# GreyTank.Full -> 1 when the dirty water tank is full or removed. The
+# Install flags did not change. Values only refresh while the robot is docked.
+PROP_GET_DOCK_SENSOR_DATA = "GET_DockSensorData"
+# Wet/mop capability signals — presence in the shadow identifies
+# mop-capable (water flow level) and wet/dry-capable (wet/dry/deep
+# clean modes) device families. All dry-only models (e.g. AV251WAXUS)
+# report Flow_Mode but lack both of these.
+PROP_GET_MOP_PLATE_ATTACHED = "GET_MopPlateAttached"
+PROP_GET_CLEANING_PARAMETERS = "GET_CleaningParameters"
 
 # Write properties (used with POST /datapoints.json)
 PROP_SET_OPERATING_MODE = "SET_Operating_Mode"

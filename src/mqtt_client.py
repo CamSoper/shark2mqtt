@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import re
@@ -27,11 +28,14 @@ class MqttClient:
         self._config = config
         self._prefix = config.mqtt_prefix
         self._client: aiomqtt.Client | None = None
-        self._clean_modes: dict[str, str] = {}  # device_id -> "Normal" or "Matrix"
+        # device_id -> clean mode: "Normal"/"Matrix" for dry-only models,
+        # "Wet"/"Dry" for wet/dry-capable models (CleaningParameters present)
+        self._clean_modes: dict[str, str] = {}
         self._fan_speed_overrides: dict[str, str] = {}  # device_id -> user-set speed
         self._water_flow_overrides: dict[str, str] = {}  # device_id -> user-set flow level
         self._published_rooms: dict[str, set[str]] = {}  # device_id -> room slugs
         self._discovery_sigs: dict[str, str] = {}  # device_id -> last published signature
+        self._map_sigs: dict[str, str] = {}  # device_id -> hash of last published floor plan
 
     async def __aenter__(self) -> MqttClient:
         will = aiomqtt.Will(
@@ -66,6 +70,37 @@ class MqttClient:
 
     # --- HA Autodiscovery ---
 
+    async def publish_map(self, device: SharkVacuum, svg: str) -> None:
+        """Publish the floor plan as an HA MQTT image entity (retained SVG).
+
+        The image is only re-sent when the plan actually changes: MARD is
+        fetched once per session and only changes when rooms are edited in
+        the Shark app.
+        """
+        dsn = device.dsn
+        digest = hashlib.sha256(svg.encode("utf-8")).hexdigest()
+        if self._map_sigs.get(dsn) == digest:
+            return
+        uid = f"shark2mqtt_{dsn}"
+        slug = re.sub(r"[^a-z0-9]+", "_", device.product_name.lower()).strip("_")
+        topic = f"{self._prefix}/{dsn}/map"
+        await self._publish(
+            f"{HA_DISCOVERY_PREFIX}/image/{uid}_map/config",
+            {
+                "name": "Floor plan",
+                "unique_id": f"{uid}_map",
+                "object_id": f"{slug}_floor_plan",
+                "image_topic": topic,
+                "content_type": "image/svg+xml",
+                "icon": "mdi:floor-plan",
+                "device": device.device_info,
+            },
+            retain=True,
+        )
+        await self._publish(topic, svg, retain=True)
+        self._map_sigs[dsn] = digest
+        logger.info("Published floor plan for %s (%s), %d bytes", device.product_name, dsn, len(svg))
+
     async def publish_discovery(self, device: SharkVacuum) -> None:
         """Publish HA MQTT autodiscovery configs for a vacuum and its sensors."""
         dsn = device.dsn
@@ -80,6 +115,8 @@ class MqttClient:
                 "device": device.device_info,
                 "rooms": device.rooms,
                 "has_flow_mode": device.has_flow_mode,
+                "has_dock_tanks": device.has_dock_tanks,
+                "has_wet_dry": device.has_wet_dry,
             },
             sort_keys=True,
         )
@@ -305,6 +342,37 @@ class MqttClient:
             retain=True,
         )
 
+        # Base water tanks (mop-washing docks only). Like the water flow
+        # select, retract the configs on models without them so an entity
+        # published by mistake never lingers in HA.
+        for key, name, field, icon in (
+            ("clean_tank_empty", "Clean Water Tank Empty", "clean_tank_empty", "mdi:water-off"),
+            ("dirty_tank_full", "Dirty Water Tank Full", "dirty_tank_full", "mdi:water-alert"),
+        ):
+            topic = f"{HA_DISCOVERY_PREFIX}/binary_sensor/{uid}_{key}/config"
+            if device.has_dock_tanks:
+                await self._publish(
+                    topic,
+                    {
+                        "name": name,
+                        "unique_id": f"{uid}_{key}",
+                        "object_id": f"{slug}_{key}",
+                        "state_topic": f"{self._prefix}/{dsn}/attributes",
+                        "value_template": f"{{{{ value_json.{field} }}}}",
+                        "payload_on": True,
+                        "payload_off": False,
+                        "device_class": "problem",
+                        "icon": icon,
+                        "availability_topic": f"{self._prefix}/{dsn}/available",
+                        "payload_available": "online",
+                        "payload_not_available": "offline",
+                        "device": device.device_info,
+                    },
+                    retain=True,
+                )
+            else:
+                await self._publish(topic, "", retain=True)
+
         # Lifetime runtime sensor (unit unconfirmed upstream, exposed raw)
         await self._publish(
             f"{HA_DISCOVERY_PREFIX}/sensor/{uid}_runtime/config",
@@ -401,7 +469,17 @@ class MqttClient:
                     retain=True,
                 )
 
-            # Clean mode select (Normal vs Matrix)
+            # Clean mode select. Wet/dry-capable models (CleaningParameters
+            # present) clean the same rooms in wet (hard floors) or dry
+            # (whole room incl. carpet) mode, with a separate Deep button
+            # for the two-stage dry-then-mop run. Other models use the
+            # legacy Normal vs Matrix single-stage modes.
+            if device.has_wet_dry:
+                options = ["Wet", "Dry"]
+                default_mode = "Dry"
+            else:
+                options = ["Normal", "Matrix"]
+                default_mode = "Normal"
             await self._publish(
                 f"{HA_DISCOVERY_PREFIX}/select/{uid}_clean_mode/config",
                 {
@@ -410,7 +488,7 @@ class MqttClient:
                     "object_id": f"{slug}_clean_mode",
                     "command_topic": f"{self._prefix}/{dsn}/clean_mode",
                     "state_topic": f"{self._prefix}/{dsn}/clean_mode/state",
-                    "options": ["Normal", "Matrix"],
+                    "options": options,
                     "icon": "mdi:broom",
                     "availability_topic": f"{self._prefix}/{dsn}/available",
                     "payload_available": "online",
@@ -420,8 +498,35 @@ class MqttClient:
                 retain=True,
             )
 
+            # Deep clean button (wet/dry models only): dry pass on carpet
+            # areas, then wet pass on hard floors.
+            if device.has_wet_dry:
+                await self._publish(
+                    f"{HA_DISCOVERY_PREFIX}/button/{uid}_deep/config",
+                    {
+                        "name": "Deep",
+                        "unique_id": f"{uid}_deep",
+                        "object_id": f"{slug}_deep",
+                        "command_topic": f"{self._prefix}/{dsn}/send_command",
+                        "payload_press": "vacuum_and_mop",
+                        "icon": "mdi:water-pump",
+                        "availability_topic": f"{self._prefix}/{dsn}/available",
+                        "payload_available": "online",
+                        "payload_not_available": "offline",
+                        "device": device.device_info,
+                    },
+                    retain=True,
+                )
+            else:
+                await self._publish(
+                    f"{HA_DISCOVERY_PREFIX}/button/{uid}_deep/config",
+                    "", retain=True,
+                )
+
             # Publish current clean mode state
-            mode = self._clean_modes.get(dsn, "Normal")
+            mode = self._clean_modes.get(dsn, default_mode)
+            if mode not in options:
+                mode = default_mode
             await self._publish(
                 f"{self._prefix}/{dsn}/clean_mode/state", mode, retain=True,
             )
@@ -557,7 +662,8 @@ class MqttClient:
                     )
                 elif topic.endswith("/clean_mode"):
                     mode = payload.strip()
-                    if mode in ("Normal", "Matrix"):
+                    valid_modes = ("Normal", "Matrix", "Wet", "Dry")
+                    if mode in valid_modes:
                         self._clean_modes[device_id] = mode
                         await self._publish(
                             f"{self._prefix}/{device_id}/clean_mode/state",
@@ -590,11 +696,24 @@ class MqttClient:
             logger.warning("clean_room button: no floor_id for %s", device_id)
             return
 
-        mode = self._clean_modes.get(device_id, "Normal")
-        if mode == "Matrix":
-            api_mode, clean_count = "UltraClean", 2
-        else:
+        wet_dry = bool(device and getattr(device, "has_wet_dry", False))
+        if wet_dry:
+            # Wet/dry models: the select drives clean_type, and room runs
+            # are always single-stage UserRoom (Deep is its own button).
+            mode = self._clean_modes.get(device_id)
+            if mode not in ("Wet", "Dry"):
+                mode = "Dry"
+            clean_type = "wet" if mode == "Wet" else "dry"
             api_mode, clean_count = "UserRoom", 1
+        else:
+            mode = self._clean_modes.get(device_id, "Normal")
+            if mode not in ("Normal", "Matrix"):
+                mode = "Normal"
+            clean_type = "dry"
+            if mode == "Matrix":
+                api_mode, clean_count = "UltraClean", 2
+            else:
+                api_mode, clean_count = "UserRoom", 1
 
         use_v3 = getattr(device, "has_areas_v3", False)
         api_rooms = (
@@ -604,7 +723,7 @@ class MqttClient:
         )
         await handler.clean_rooms(
             device_id, rooms=api_rooms, floor_id=floor_id,
-            clean_type="dry", clean_count=clean_count, mode=api_mode,
+            clean_type=clean_type, clean_count=clean_count, mode=api_mode,
             use_v3=use_v3,
         )
         logger.info(

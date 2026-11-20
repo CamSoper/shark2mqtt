@@ -75,8 +75,51 @@ volumes:
 | `POLL_INTERVAL_ACTIVE` | No | `20` | Polling interval while cleaning |
 | `TOKEN_DIR` | No | `/data` | Directory for persisted auth tokens |
 | `LOG_LEVEL` | No | `INFO` | `DEBUG`, `INFO`, `WARNING`, or `ERROR` |
+| `MAP_IMAGE` | No | `true` | Publish a floor plan image entity (see [Floor plan](#floor-plan)) |
+| `MAP_SHOW_SCAN` | No | `false` | Draw the robot's floor scan (walls, explored floor) under the rooms |
 
 See [`config.example.env`](config.example.env) for a ready-to-edit template.
+
+### Docker secrets
+
+Docker Compose and Swarm can provide credentials as files mounted in `/run/secrets`.
+Use the existing environment variable names as the secret file names, such as
+`SHARK_PASSWORD` and `MQTT_PASSWORD`. No `_FILE` variables or entrypoint changes
+are needed.
+
+Configuration precedence is **environment variables > `.env` > Docker secrets**.
+To use a secret, omit the corresponding variable from the environment and any
+`.env` file entirely. Even an empty environment variable overrides a secret.
+
+For a Swarm stack, first create `SHARK_PASSWORD` and `MQTT_PASSWORD` as external
+Docker secrets, then attach them to the service:
+
+```yaml
+services:
+  shark2mqtt:
+    image: ghcr.io/camsoper/shark2mqtt:latest
+    environment:
+      SHARK_USERNAME: user@example.com
+      MQTT_HOST: mqtt.example.com
+      MQTT_USERNAME: shark2mqtt
+    secrets:
+      - SHARK_PASSWORD
+      - MQTT_PASSWORD
+    volumes:
+      - shark2mqtt_data:/data
+
+secrets:
+  SHARK_PASSWORD:
+    external: true
+  MQTT_PASSWORD:
+    external: true
+
+volumes:
+  shark2mqtt_data:
+```
+
+The running image must include Docker secrets support; rebuild from this source
+until it is included in a published image.
 
 ## Authentication
 
@@ -121,7 +164,7 @@ This one is a different animal from the Turnstile problem above, and the message
 
 That combination means Auth0's risk-based bot detection has flagged the *automated sign-in pattern*, not your account. There is nothing wrong with your credentials and nothing to unlock. Thanks to @dewbot6 for diagnosing this in [#38](https://github.com/CamSoper/shark2mqtt/issues/38).
 
-**What to do:** stop the retry loop and wait it out. Set the restart policy to `no` (or stop the add-on) and leave it alone for several hours -- overnight is a reasonable first attempt. Retrying against an already-flagged pattern tends to extend the block rather than clear it.
+**What to do:** stop the retry loop and wait it out. Set the restart policy to `no` (or stop the add-on) and leave it alone. In the one case we have data on ([#38](https://github.com/CamSoper/shark2mqtt/issues/38)) the block took about 10 days to clear, after which a normal restart logged in cleanly. Try again every day or two rather than assuming it's permanent. Retrying against an already-flagged pattern tends to extend the block rather than clear it.
 
 While you're waiting, it's worth confirming this isn't just a dead refresh token, which produces a similar "vacuum went unavailable but the app works fine" symptom. Look for this in the logs:
 
@@ -148,10 +191,40 @@ Each vacuum is automatically discovered by Home Assistant with the following ent
 | `button.<name>_clean_<room>` | Button | One-tap room cleaning (one per room) |
 | `select.<name>_clean_mode` | Select | Normal or Matrix (double-pass) cleaning mode |
 | `select.<name>_water_flow` | Select | Mop water flow level (vac+mop models only) |
+| `binary_sensor.<name>_clean_tank_empty` | Binary Sensor | Base's clean water tank empty or removed (mop-washing bases only) |
+| `binary_sensor.<name>_dirty_tank_full` | Binary Sensor | Base's dirty water tank full or removed (mop-washing bases only) |
+| `image.<name>_floor_plan` | Image | Floor plan: room outlines with names and areas |
 
-Room buttons and the clean mode select appear automatically when room data is available from the Shark cloud. The water flow select appears only on models that report `Flow_Mode` -- i.e. those with a mop tank -- so vacuum-only models won't get a control their hardware ignores.
+Room buttons and the clean mode select appear automatically when room data is available from the Shark cloud. The water flow select appears only on models that report `MopPlateAttached` -- i.e. those with a mop plate -- so vacuum-only models won't get a control their hardware ignores. (`Flow_Mode` isn't a reliable signal: dry-only models report it too.)
+
+The tank sensors appear only on robots whose shadow reports `DockSensorData` (bases that wash the mop and refill the robot). The base only updates them while the robot is docked, so expect a change to show up at the next poll after the robot returns.
 
 An error device trigger fires when a new error is detected, usable in HA automations.
+
+### Floor plan
+
+The `image.<name>_floor_plan` entity is drawn from the room file the Shark app uses
+(`MARD`, which shark2mqtt already downloads for room names): each room's outline in
+its own colour, labelled with its name and area in m². Set `MAP_SHOW_SCAN=true` to
+draw the robot's own floor scan (walls and explored floor) underneath.
+
+It's an SVG, so labels stay sharp at any size, and it's served by Home Assistant
+like any other image entity, so it's only visible to signed-in users. Show it with
+a picture-entity card:
+
+```yaml
+type: picture-entity
+entity: image.<name>_floor_plan
+show_name: false
+show_state: false
+```
+
+The plan updates when the room file changes, i.e. after you edit rooms in the Shark
+app and shark2mqtt restarts. Currently drawn for accounts on the SharkNinja (skegox)
+API, which covers EU accounts and migrated US ones; pure-Ayla accounts don't keep
+the file around yet. The scan's cell meanings (wall, floor, unexplored) were worked
+out from RV2800ZEUK and RV2800YEUK units, so other models may shade differently.
+Set `MAP_IMAGE=false` to turn it off.
 
 ### Vacuum States
 

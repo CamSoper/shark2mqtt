@@ -22,6 +22,7 @@ Other SharkNinja robot vacuums likely work too. This list reflects what's been r
 | RV2520AZUS | US | [@emann3](https://github.com/emann3) ([#10](https://github.com/CamSoper/shark2mqtt/issues/10)) | |
 | AV251WAYUS | US | [@emann3](https://github.com/emann3) ([#10](https://github.com/CamSoper/shark2mqtt/issues/10)) | |
 | RV2820ZEUS (vac/mop) | US | [@emann3](https://github.com/emann3) ([#10](https://github.com/CamSoper/shark2mqtt/issues/10)) | |
+| RV2800ZEEU (vac/mop) | Germany (`eu` region) | [@belzadur](https://github.com/belzadur) | Room cleaning wet and dry via `clean_rooms` (`clean_type: wet` reports Operating_Mode MOP). `warning_code` 8 = refill water tank, 43 = docked, no issue (observed) |
 | RV750R01US | US | [@rmiles7721](https://github.com/rmiles7721) ([#10](https://github.com/CamSoper/shark2mqtt/issues/10)) | |
 | AV2870ZEUS | US | [@deftones064](https://github.com/deftones064) ([#10](https://github.com/CamSoper/shark2mqtt/issues/10)) | Firmware `V0.0.32-3d-20250714V6.6.1` |
 | AV301WXEUK | EU | [@Adouken](https://github.com/Adouken) | Works with both wet and dry commands
@@ -34,4 +35,5 @@ Other SharkNinja robot vacuums likely work too. This list reflects what's been r
 | UR235BCDUS | US | [@johnluetke](https://github.com/johnluetke) ([#10](https://github.com/CamSoper/shark2mqtt/issues/10)) | |
 | RV2310CDUS | US | [@dewbot6](https://github.com/dewbot6) ([#10](https://github.com/CamSoper/shark2mqtt/issues/10)) | |
 | RV2910XEUS (Shark PowerDetect) | US | [@firedino1234](https://github.com/firedino1234) ([#10](https://github.com/CamSoper/shark2mqtt/issues/10)) | State stays Idle / `operating_mode: unknown` during active cleaning; updates correctly on return to base |
+| RV2620WKUK | UK (`eu` region) | [@maughanorama](https://github.com/maughanorama) ([#48](https://github.com/CamSoper/shark2mqtt/issues/48)) | skegox only (not on Ayla). Via the [HA add-on](https://github.com/400HPMustang/shark2mqtt-addon) |
 | RV2920XEUS (PowerDetect ThermaCharged 2-in-1) | US | [@alvaropiaggio-gif](https://github.com/alvaropiaggio-gif) ([#10](https://github.com/CamSoper/shark2mqtt/issues/10)) | Water level not exposed (persistent global setting on the robot) |
