@@ -57,6 +57,12 @@ class SharkVacuum:
         self.has_areas_v3: bool = False
         self.api_backend: str = "ayla"
         self.room_name_map: dict[str, str] = {}
+        # MOP_ROBOTS / NO_MOP_ROBOTS: True/False forces the mop capability
+        # gates below; None leaves them to auto-detection.
+        self.mop_override: bool | None = None
+        # Set by the poll loop once this robot has reported a real
+        # CleaningParameters value this session (see has_wet_dry).
+        self.wet_dry_seen: bool = False
 
     def to_robot_room_names(self, rooms: list[str]) -> list[str]:
         """Reverse-map display names to robot_room_name values for the API.
@@ -320,23 +326,45 @@ class SharkVacuum:
 
         Flow_Mode alone is NOT a reliable signal — dry-only models
         (e.g. AV251WAXUS) and wet/dry models (UR2850ZEUS) also report it.
-        MopPlateAttached is only present on models with a physical mop
-        plate, so it is the capability gate for the water flow level
-        select. Both backends land properties in `_properties` under the
-        `GET_` name, so this works for skegox and Ayla alike.
+        MopPlateAttached is the auto-detection gate, but it isn't perfect
+        either: some vacuum-only models (UR2360EEUS) carry it in their
+        shadow too, which is what MOP_ROBOTS / NO_MOP_ROBOTS are for.
         """
+        if self.mop_override is not None:
+            return self.mop_override
         return PROP_GET_MOP_PLATE_ATTACHED in self._properties
+
+    @property
+    def cleaning_parameters(self) -> dict[str, Any]:
+        """CleaningParameters parsed to a dict; {} when empty or unparseable."""
+        raw = self._get_prop(PROP_GET_CLEANING_PARAMETERS)
+        if isinstance(raw, dict):
+            return raw
+        if not isinstance(raw, str) or not raw.strip():
+            return {}
+        try:
+            parsed = json.loads(raw)
+        except ValueError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
 
     @property
     def has_wet_dry(self) -> bool:
         """Whether this model supports wet/dry/deep clean modes.
 
-        CleaningParameters (e.g. '{"Dry":1,"Wet":0,"Deep":0,"CleanStage":2}')
-        is only present on wet/dry-capable models such as the UR2850ZEUS
-        and RV2820YEUS. Its value is live clean state, not a capability
-        flag — only the property's PRESENCE is the signal.
+        Wet/dry models (UR2850ZEUS, RV2820YEUS) report CleaningParameters as
+        a JSON object like '{"Dry":1,"Wet":0,"Deep":0,"CleanStage":2}'.
+        Mere presence is NOT enough: a vacuum-only UR2360EEUS carries the
+        property as an empty string. So it takes a real value, and once
+        seen it sticks for the session (wet_dry_seen) in case the value is
+        cleared between runs. MOP_ROBOTS / NO_MOP_ROBOTS override it.
         """
-        return PROP_GET_CLEANING_PARAMETERS in self._properties
+        if self.mop_override is not None:
+            return self.mop_override
+        if self.wet_dry_seen:
+            return True
+        params = self.cleaning_parameters
+        return any(k in params for k in ("Wet", "Dry", "Deep"))
 
     @property
     def dock_sensor_data(self) -> dict[str, Any]:

@@ -75,6 +75,8 @@ volumes:
 | `POLL_INTERVAL_ACTIVE` | No | `20` | Polling interval while cleaning |
 | `TOKEN_DIR` | No | `/data` | Directory for persisted auth tokens |
 | `LOG_LEVEL` | No | `INFO` | `DEBUG`, `INFO`, `WARNING`, or `ERROR` |
+| `NO_MOP_ROBOTS` | No | | Comma-separated robot names or DSNs that have **no** mop. Hides water flow and Wet/Dry/Deep even if auto-detection thinks otherwise |
+| `MOP_ROBOTS` | No | | Comma-separated robot names or DSNs that **do** mop, for when auto-detection misses one |
 | `AYLA_MERGE` | No | `false` | Half-migrated accounts: also publish robots that are only on the older Ayla backend (see [#46](https://github.com/CamSoper/shark2mqtt/issues/46)) |
 | `MAP_IMAGE` | No | `true` | Publish a floor plan image entity (see [Floor plan](#floor-plan)) |
 | `MAP_SHOW_SCAN` | No | `false` | Draw the robot's floor scan (walls, explored floor) under the rooms |
@@ -196,7 +198,7 @@ Each vacuum is automatically discovered by Home Assistant with the following ent
 | `binary_sensor.<name>_dirty_tank_full` | Binary Sensor | Base's dirty water tank full or removed (mop-washing bases only) |
 | `image.<name>_floor_plan` | Image | Floor plan: room outlines with names and areas |
 
-Room buttons and the clean mode select appear automatically when room data is available from the Shark cloud. The water flow select appears only on models that report `MopPlateAttached` -- i.e. those with a mop plate -- so vacuum-only models won't get a control their hardware ignores. (`Flow_Mode` isn't a reliable signal: dry-only models report it too.)
+Room buttons and the clean mode select appear automatically when room data is available from the Shark cloud. The water flow select appears on models that report `MopPlateAttached`, and the Wet/Dry clean mode plus Deep button on models that report a real `CleaningParameters` value. That's auto-detection from shadow fields, and it isn't perfect: some vacuum-only models (a UR2360EEUS, for one) carry mop fields too. If a robot gets mop controls it can't use, or misses ones it should have, list it in `NO_MOP_ROBOTS` or `MOP_ROBOTS`.
 
 The tank sensors appear only on robots whose shadow reports `DockSensorData` (bases that wash the mop and refill the robot). The base only updates them while the robot is docked, so expect a change to show up at the next poll after the robot returns.
 

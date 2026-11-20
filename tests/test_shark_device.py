@@ -217,6 +217,32 @@ class TestWetDryCapability:
         assert vac.has_flow_mode is True
         assert "water_flow" in vac.to_attributes_payload()
 
+    def test_empty_cleaning_parameters_is_not_wet_dry(self):
+        # A vacuum-only UR2360EEUS reports the mop-family fields with empty
+        # values: CleaningParameters "" and MopPlateAttached false.
+        vac = make_vacuum()
+        vac._properties["GET_CleaningParameters"] = ""
+        assert vac.has_wet_dry is False
+
+    def test_wet_dry_latch_survives_cleared_value(self):
+        vac = make_vacuum()
+        vac._properties["GET_CleaningParameters"] = ""
+        vac.wet_dry_seen = True
+        assert vac.has_wet_dry is True
+
+    def test_no_mop_override_beats_detection(self):
+        vac = make_wet_dry_vacuum()
+        vac.mop_override = False
+        assert vac.has_wet_dry is False
+        assert vac.has_flow_mode is False
+        assert "water_flow" not in vac.to_attributes_payload()
+
+    def test_mop_override_forces_capability(self):
+        vac = make_vacuum()
+        vac.mop_override = True
+        assert vac.has_wet_dry is True
+        assert vac.has_flow_mode is True
+
     @pytest.mark.asyncio
     async def test_discovery_retracts_select_for_vac_only(self, mock_config):
         # Not publishing isn't enough — discovery configs are retained, so a
