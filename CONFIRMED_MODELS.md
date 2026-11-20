@@ -35,4 +35,5 @@ Other SharkNinja robot vacuums likely work too. This list reflects what's been r
 | UR235BCDUS | US | [@johnluetke](https://github.com/johnluetke) ([#10](https://github.com/CamSoper/shark2mqtt/issues/10)) | |
 | RV2310CDUS | US | [@dewbot6](https://github.com/dewbot6) ([#10](https://github.com/CamSoper/shark2mqtt/issues/10)) | |
 | RV2910XEUS (Shark PowerDetect) | US | [@firedino1234](https://github.com/firedino1234) ([#10](https://github.com/CamSoper/shark2mqtt/issues/10)) | State stays Idle / `operating_mode: unknown` during active cleaning; updates correctly on return to base |
+| RV2620WKUK | UK (`eu` region) | [@maughanorama](https://github.com/maughanorama) ([#48](https://github.com/CamSoper/shark2mqtt/issues/48)) | skegox only (not on Ayla). Via the [HA add-on](https://github.com/400HPMustang/shark2mqtt-addon) |
 | RV2920XEUS (PowerDetect ThermaCharged 2-in-1) | US | [@alvaropiaggio-gif](https://github.com/alvaropiaggio-gif) ([#10](https://github.com/CamSoper/shark2mqtt/issues/10)) | Water level not exposed (persistent global setting on the robot) |

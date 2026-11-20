@@ -355,7 +355,8 @@ async def run(config: Settings) -> None:
         try:
             ayla_vacuums = await ayla_api.get_devices()
             for v in ayla_vacuums:
-                bsn = v._properties.get("GET_Battery_Serial_Num", "")
+                # The property can be present with a None value (seen on an RV2820ZEUS).
+                bsn = v._properties.get("GET_Battery_Serial_Num") or ""
                 snd = bsn.split("-")[-1] if "-" in bsn else ""
                 if snd and v.rooms:
                     ayla_room_data[snd] = (v.floor_id, v.rooms)

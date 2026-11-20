@@ -164,7 +164,7 @@ This one is a different animal from the Turnstile problem above, and the message
 
 That combination means Auth0's risk-based bot detection has flagged the *automated sign-in pattern*, not your account. There is nothing wrong with your credentials and nothing to unlock. Thanks to @dewbot6 for diagnosing this in [#38](https://github.com/CamSoper/shark2mqtt/issues/38).
 
-**What to do:** stop the retry loop and wait it out. Set the restart policy to `no` (or stop the add-on) and leave it alone for several hours -- overnight is a reasonable first attempt. Retrying against an already-flagged pattern tends to extend the block rather than clear it.
+**What to do:** stop the retry loop and wait it out. Set the restart policy to `no` (or stop the add-on) and leave it alone. In the one case we have data on ([#38](https://github.com/CamSoper/shark2mqtt/issues/38)) the block took about 10 days to clear, after which a normal restart logged in cleanly. Try again every day or two rather than assuming it's permanent. Retrying against an already-flagged pattern tends to extend the block rather than clear it.
 
 While you're waiting, it's worth confirming this isn't just a dead refresh token, which produces a similar "vacuum went unavailable but the app works fine" symptom. Look for this in the logs:
 
@@ -195,7 +195,7 @@ Each vacuum is automatically discovered by Home Assistant with the following ent
 | `binary_sensor.<name>_dirty_tank_full` | Binary Sensor | Base's dirty water tank full or removed (mop-washing bases only) |
 | `image.<name>_floor_plan` | Image | Floor plan: room outlines with names and areas |
 
-Room buttons and the clean mode select appear automatically when room data is available from the Shark cloud. The water flow select appears only on models that report `Flow_Mode` -- i.e. those with a mop tank -- so vacuum-only models won't get a control their hardware ignores.
+Room buttons and the clean mode select appear automatically when room data is available from the Shark cloud. The water flow select appears only on models that report `MopPlateAttached` -- i.e. those with a mop plate -- so vacuum-only models won't get a control their hardware ignores. (`Flow_Mode` isn't a reliable signal: dry-only models report it too.)
 
 The tank sensors appear only on robots whose shadow reports `DockSensorData` (bases that wash the mop and refill the robot). The base only updates them while the robot is docked, so expect a change to show up at the next poll after the robot returns.
 

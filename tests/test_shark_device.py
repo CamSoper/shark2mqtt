@@ -82,6 +82,18 @@ class TestDockedState:
         assert vac.ha_state == "cleaning"
 
 
+class TestOperatingModeAttribute:
+    # Issues #48/#49: STOP is 0, which is falsy, so the attribute used to
+    # read "unknown" whenever the robot was stopped or docked.
+    def test_stop_is_named(self):
+        vac = make_vacuum(operating_mode=0, docked_status=1)
+        assert vac.to_attributes_payload()["operating_mode"] == "STOP"
+
+    def test_nonzero_mode_is_named(self):
+        vac = make_vacuum(operating_mode=2)
+        assert vac.to_attributes_payload()["operating_mode"] == "START"
+
+
 class TestDockAndMaintenanceProperties:
     def test_defaults_when_absent(self):
         vac = make_vacuum()
