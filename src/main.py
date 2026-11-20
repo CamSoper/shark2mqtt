@@ -138,6 +138,50 @@ async def _publish_floor_plan(
         logger.warning("Could not publish floor plan for %s", device.product_name, exc_info=True)
 
 
+def _ayla_snd(device: SharkVacuum) -> str:
+    """The skegox device ID an Ayla robot migrated to, from its battery serial.
+
+    GET_Battery_Serial_Num looks like "<prefix>-<snd>". It can be missing or
+    present with a None value (issue #46), so both read as no match.
+    """
+    bsn = device._properties.get("GET_Battery_Serial_Num") or ""
+    return bsn.split("-")[-1] if "-" in bsn else ""
+
+
+def _ayla_only_devices(
+    ayla_devices: list[SharkVacuum], skegox_snds: set[str], *, log: bool = False,
+) -> list[SharkVacuum]:
+    """Ayla robots that skegox doesn't already report (AYLA_MERGE).
+
+    Migrated robots usually keep a stale Ayla record, so a robot is skipped
+    when its battery serial maps to a skegox device, and also when Ayla
+    reports it offline (migrated robots read Offline there, issue #48).
+    Without both checks, those stale records would show up in Home
+    Assistant as duplicate vacuums.
+    """
+    kept = []
+    for device in ayla_devices:
+        snd = _ayla_snd(device)
+        if device.dsn in skegox_snds or (snd and snd in skegox_snds):
+            reason = "already on skegox"
+        elif not device.is_online:
+            reason = "offline on Ayla"
+        else:
+            kept.append(device)
+            if log:
+                logger.info(
+                    "AYLA_MERGE: adding Ayla-only robot %s (%s)",
+                    device.product_name, device.dsn,
+                )
+            continue
+        if log:
+            logger.info(
+                "AYLA_MERGE: skipping Ayla robot %s (%s): %s",
+                device.product_name, device.dsn, reason,
+            )
+    return kept
+
+
 async def poll_loop(
     api: SkegoxApi,
     ayla_api: AylaApi,
@@ -246,13 +290,20 @@ async def poll_loop(
                     "Skegox returned %d device(s): %s",
                     len(skegox_snds), skegox_names or "(none)",
                 )
-            if skegox_snds:
+            if skegox_snds and not config.ayla_merge:
                 if first_poll:
                     logger.info("Using skegox API, skipping Ayla")
             else:
                 try:
                     ayla_devices = await ayla_api.get_devices()
-                    if first_poll:
+                    if skegox_snds:
+                        # AYLA_MERGE (issue #46): a half-migrated account
+                        # has robots on both backends. Add only the Ayla
+                        # robots that skegox doesn't already cover.
+                        ayla_devices = _ayla_only_devices(
+                            ayla_devices, skegox_snds, log=first_poll,
+                        )
+                    elif first_poll:
                         ayla_names = [d.product_name for d in ayla_devices]
                         logger.info(
                             "Falling back to Ayla, found %d device(s): %s",

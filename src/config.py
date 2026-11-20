@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     map_image: bool = True
     map_show_scan: bool = False
 
+    # Also publish Ayla-only robots on accounts where skegox has others
+    # (half-migrated accounts, issue #46). Off by default.
+    ayla_merge: bool = False
+
     # Operation modes
     auth_once: bool = False
     offline: bool = False
