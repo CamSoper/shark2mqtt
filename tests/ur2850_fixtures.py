@@ -5,8 +5,8 @@ REAL samples are copied from sanitized bridge DEBUG "Shadow values" lines
 verbatim; room and floor IDs were replaced with placeholders.
 
 SYNTHETIC samples are states missing from the retained logs. They are built
-from the same format, with the values observed and written up in the
-wrapper fork's docs/dev/DEVICE_FINDINGS.md. Each is marked SYNTHETIC.
+from the same format, with the values observed on the robot at the time.
+Each is marked SYNTHETIC.
 """
 
 from __future__ import annotations

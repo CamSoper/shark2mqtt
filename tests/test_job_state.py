@@ -139,7 +139,8 @@ class TestJobAwareState:
 
     def test_emptying_mid_job_is_docked_and_keeps_job(self):
         # Real 12:49:48 sample: back on the dock to empty the bin, job kept,
-        # DockedStatus still False. 1.5.5-claude.2 showed "cleaning" here.
+        # DockedStatus still False. An earlier version of this logic showed
+        # "cleaning" here.
         vac = make_ur2850("emptying_mid_job")
         assert vac.is_docked is False
         assert vac.is_evacuating is True

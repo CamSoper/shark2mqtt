@@ -195,10 +195,14 @@ Each vacuum is automatically discovered by Home Assistant with the following ent
 | `binary_sensor.<name>_clean_tank_empty` | Binary Sensor | Base's clean water tank empty or removed (mop-washing bases only) |
 | `binary_sensor.<name>_dirty_tank_full` | Binary Sensor | Base's dirty water tank full or removed (mop-washing bases only) |
 | `image.<name>_floor_plan` | Image | Floor plan: room outlines with names and areas |
+| `sensor.<name>_sys_st` | Sensor | Diagnostic: the robot's `sys_st` system status code (models that report `Operating_Mode_Ex` only) |
+| `binary_sensor.<name>_job_active` | Binary Sensor | Diagnostic: on while a clean job exists, including while paused (models that report `AreasToClean_V3` only) |
 
 Room buttons and the clean mode select appear automatically when room data is available from the Shark cloud. The water flow select appears only on models that report `MopPlateAttached` -- i.e. those with a mop plate -- so vacuum-only models won't get a control their hardware ignores. (`Flow_Mode` isn't a reliable signal: dry-only models report it too.)
 
 The tank sensors appear only on robots whose shadow reports `DockSensorData` (bases that wash the mop and refill the robot). The base only updates them while the robot is docked, so expect a change to show up at the next poll after the robot returns.
+
+On robots that report both `Operating_Mode_Ex` (with `sys_st`) and `AreasToClean_V3`, such as the UR2850ZEUS, the vacuum state comes from `sys_st` and the current job rather than `DockedStatus`, `Charging_Status` and `Operating_Mode`, which can lag or go stale on those models. Fast polling also stays on while a job exists. Other models keep the existing state logic.
 
 An error device trigger fires when a new error is detected, usable in HA automations.
 
