@@ -22,6 +22,7 @@ Other SharkNinja robot vacuums likely work too. This list reflects what's been r
 | RV2520AZUS | US | [@emann3](https://github.com/emann3) ([#10](https://github.com/CamSoper/shark2mqtt/issues/10)) | |
 | AV251WAYUS | US | [@emann3](https://github.com/emann3) ([#10](https://github.com/CamSoper/shark2mqtt/issues/10)) | |
 | RV2820ZEUS (vac/mop) | US | [@emann3](https://github.com/emann3) ([#10](https://github.com/CamSoper/shark2mqtt/issues/10)) | |
+| RV2800ZEEU (vac/mop) | Germany (`eu` region) | [@belzadur](https://github.com/belzadur) | Room cleaning wet and dry via `clean_rooms` (`clean_type: wet` reports Operating_Mode MOP). `warning_code` 8 = refill water tank, 43 = docked, no issue (observed) |
 | RV750R01US | US | [@rmiles7721](https://github.com/rmiles7721) ([#10](https://github.com/CamSoper/shark2mqtt/issues/10)) | |
 | AV2870ZEUS | US | [@deftones064](https://github.com/deftones064) ([#10](https://github.com/CamSoper/shark2mqtt/issues/10)) | Firmware `V0.0.32-3d-20250714V6.6.1` |
 | AV301WXEUK | EU | [@Adouken](https://github.com/Adouken) | Works with both wet and dry commands
