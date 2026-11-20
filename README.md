@@ -75,6 +75,7 @@ volumes:
 | `POLL_INTERVAL_ACTIVE` | No | `20` | Polling interval while cleaning |
 | `TOKEN_DIR` | No | `/data` | Directory for persisted auth tokens |
 | `LOG_LEVEL` | No | `INFO` | `DEBUG`, `INFO`, `WARNING`, or `ERROR` |
+| `AYLA_MERGE` | No | `false` | Half-migrated accounts: also publish robots that are only on the older Ayla backend (see [#46](https://github.com/CamSoper/shark2mqtt/issues/46)) |
 | `MAP_IMAGE` | No | `true` | Publish a floor plan image entity (see [Floor plan](#floor-plan)) |
 | `MAP_SHOW_SCAN` | No | `false` | Draw the robot's floor scan (walls, explored floor) under the rooms |
 
