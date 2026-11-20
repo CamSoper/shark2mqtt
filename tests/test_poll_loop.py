@@ -8,8 +8,10 @@ import time
 import pytest
 
 from src.main import poll_loop
+from src.shark_device import SharkVacuum
 
 from .conftest import make_skegox_device
+from .ur2850_fixtures import ur2850_raw
 
 
 @pytest.mark.asyncio
@@ -114,3 +116,73 @@ async def test_event_cleared_after_wake(
 
     assert poll_count == 2
     assert event_state_after_wake is False
+
+
+async def _first_interval(mock_api, mock_ayla_api, mock_mqtt, mock_auth, mock_config,
+                          command_event, monkeypatch, raw_device) -> float:
+    """Run one poll cycle and return the timeout it waits with."""
+    mock_api.get_all_devices.return_value = [raw_device]
+    mock_api.fetch_property_file.return_value = None
+    seen: list[float] = []
+
+    async def fake_wait_for(awaitable, timeout):
+        seen.append(timeout)
+        awaitable.close()
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr("src.main.asyncio.wait_for", fake_wait_for)
+    with pytest.raises(asyncio.CancelledError):
+        await poll_loop(
+            mock_api, mock_ayla_api, mock_mqtt, mock_auth, mock_config,
+            {}, {}, {}, command_event,
+        )
+    return seen[0]
+
+
+@pytest.mark.asyncio
+async def test_job_on_dock_polls_fast(
+    mock_api, mock_ayla_api, mock_mqtt, mock_auth, mock_config, command_event, monkeypatch,
+):
+    """A job back on the dock shows docked but still needs fast polling."""
+    assert SharkVacuum.from_skegox(ur2850_raw("recharge_mid_job")).ha_state == "docked"
+    interval = await _first_interval(
+        mock_api, mock_ayla_api, mock_mqtt, mock_auth, mock_config, command_event,
+        monkeypatch, ur2850_raw("recharge_mid_job"),
+    )
+    assert interval == mock_config.poll_interval_active
+
+
+@pytest.mark.asyncio
+async def test_job_with_unreadable_sys_st_polls_fast(
+    mock_api, mock_ayla_api, mock_mqtt, mock_auth, mock_config, command_event, monkeypatch,
+):
+    """Only the job is readable: state falls back to docked, polling is fast."""
+    raw = ur2850_raw("stale_scheduled_run", Operating_Mode_Ex=None)
+    assert SharkVacuum.from_skegox(raw).ha_state == "docked"
+    interval = await _first_interval(
+        mock_api, mock_ayla_api, mock_mqtt, mock_auth, mock_config, command_event,
+        monkeypatch, raw,
+    )
+    assert interval == mock_config.poll_interval_active
+
+
+@pytest.mark.asyncio
+async def test_idle_docked_polls_slow(
+    mock_api, mock_ayla_api, mock_mqtt, mock_auth, mock_config, command_event, monkeypatch,
+):
+    interval = await _first_interval(
+        mock_api, mock_ayla_api, mock_mqtt, mock_auth, mock_config, command_event,
+        monkeypatch, ur2850_raw("docked_idle"),
+    )
+    assert interval == mock_config.poll_interval
+
+
+@pytest.mark.asyncio
+async def test_legacy_docked_polls_slow(
+    mock_api, mock_ayla_api, mock_mqtt, mock_auth, mock_config, command_event, monkeypatch,
+):
+    interval = await _first_interval(
+        mock_api, mock_ayla_api, mock_mqtt, mock_auth, mock_config, command_event,
+        monkeypatch, make_skegox_device(operating_mode=0),
+    )
+    assert interval == mock_config.poll_interval
