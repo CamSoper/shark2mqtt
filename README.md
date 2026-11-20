@@ -75,6 +75,8 @@ volumes:
 | `POLL_INTERVAL_ACTIVE` | No | `20` | Polling interval while cleaning |
 | `TOKEN_DIR` | No | `/data` | Directory for persisted auth tokens |
 | `LOG_LEVEL` | No | `INFO` | `DEBUG`, `INFO`, `WARNING`, or `ERROR` |
+| `MAP_IMAGE` | No | `true` | Publish a floor plan image entity (see [Floor plan](#floor-plan)) |
+| `MAP_SHOW_SCAN` | No | `false` | Draw the robot's floor scan (walls, explored floor) under the rooms |
 
 See [`config.example.env`](config.example.env) for a ready-to-edit template.
 
@@ -191,12 +193,38 @@ Each vacuum is automatically discovered by Home Assistant with the following ent
 | `select.<name>_water_flow` | Select | Mop water flow level (vac+mop models only) |
 | `binary_sensor.<name>_clean_tank_empty` | Binary Sensor | Base's clean water tank empty or removed (mop-washing bases only) |
 | `binary_sensor.<name>_dirty_tank_full` | Binary Sensor | Base's dirty water tank full or removed (mop-washing bases only) |
+| `image.<name>_floor_plan` | Image | Floor plan: room outlines with names and areas |
 
 Room buttons and the clean mode select appear automatically when room data is available from the Shark cloud. The water flow select appears only on models that report `Flow_Mode` -- i.e. those with a mop tank -- so vacuum-only models won't get a control their hardware ignores.
 
 The tank sensors appear only on robots whose shadow reports `DockSensorData` (bases that wash the mop and refill the robot). The base only updates them while the robot is docked, so expect a change to show up at the next poll after the robot returns.
 
 An error device trigger fires when a new error is detected, usable in HA automations.
+
+### Floor plan
+
+The `image.<name>_floor_plan` entity is drawn from the room file the Shark app uses
+(`MARD`, which shark2mqtt already downloads for room names): each room's outline in
+its own colour, labelled with its name and area in m². Set `MAP_SHOW_SCAN=true` to
+draw the robot's own floor scan (walls and explored floor) underneath.
+
+It's an SVG, so labels stay sharp at any size, and it's served by Home Assistant
+like any other image entity, so it's only visible to signed-in users. Show it with
+a picture-entity card:
+
+```yaml
+type: picture-entity
+entity: image.<name>_floor_plan
+show_name: false
+show_state: false
+```
+
+The plan updates when the room file changes, i.e. after you edit rooms in the Shark
+app and shark2mqtt restarts. Currently drawn for accounts on the SharkNinja (skegox)
+API, which covers EU accounts and migrated US ones; pure-Ayla accounts don't keep
+the file around yet. The scan's cell meanings (wall, floor, unexplored) were worked
+out from RV2800ZEUK and RV2800YEUK units, so other models may shade differently.
+Set `MAP_IMAGE=false` to turn it off.
 
 ### Vacuum States
 

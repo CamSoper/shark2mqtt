@@ -14,6 +14,7 @@ import aiomqtt
 from .ayla_api import AylaApi, MardData, debug_dump_mard_structure, parse_mard
 from .config import Settings
 from .exc import SharkAuthError
+from .map_render import render_map_svg
 from .mqtt_client import MqttClient
 from .shark_auth import SharkAuth
 from .shark_device import SharkVacuum
@@ -110,6 +111,33 @@ async def _fetch_skegox_mard(
     return parse_mard(body, product_name, dsn, source="Skegox MARD")
 
 
+async def _publish_floor_plan(
+    mqtt: MqttClient,
+    config: Settings,
+    device: SharkVacuum,
+    mard: MardData | None,
+    rendered: dict[str, bytes],
+) -> None:
+    """Render the device's MARD as a floor plan and publish it, once per file.
+
+    Never raises: a plan that can't be drawn is logged and skipped so it can
+    never interrupt polling.
+    """
+    if not config.map_image or mard is None or not isinstance(mard.raw, bytes):
+        return
+    if rendered.get(device.dsn) is mard.raw:
+        return  # this exact file was already rendered this session
+    rendered[device.dsn] = mard.raw
+    try:
+        svg = render_map_svg(mard.raw, show_scan=config.map_show_scan)
+        if svg:
+            await mqtt.publish_map(device, svg)
+        else:
+            logger.debug("No rooms with outlines in MARD for %s", device.product_name)
+    except Exception:
+        logger.warning("Could not publish floor plan for %s", device.product_name, exc_info=True)
+
+
 async def poll_loop(
     api: SkegoxApi,
     ayla_api: AylaApi,
@@ -128,6 +156,8 @@ async def poll_loop(
     # only changes on room edits/map saves, not per poll, so re-fetching
     # every cycle would waste API calls and S3 presigned URLs.
     skegox_mard_cache: dict[str, MardData] = {}
+    # MARD file last rendered per device, so the plan is drawn once per file.
+    rendered_maps: dict[str, bytes] = {}
 
     while True:
         any_active = False
@@ -196,6 +226,11 @@ async def poll_loop(
                 skegox_snds.add(device.dsn)
                 devices_map[device.dsn] = device
                 await mqtt.publish_discovery(device)
+                # Floor plan from whichever MARD supplied the rooms.
+                await _publish_floor_plan(
+                    mqtt, config, device,
+                    skegox_mard if skegox_mard.rooms else ayla, rendered_maps,
+                )
                 await mqtt.publish_state(device, prev_error=prev_errors)
                 prev_errors[device.dsn] = device.error_code
                 if device.ha_state != "docked":
