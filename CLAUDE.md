@@ -1,5 +1,7 @@
 # CLAUDE.md — shark2mqtt
 
+Standing orders (including keeping the Home Assistant add-on working): @AGENTS.md
+
 ## What This Is
 
 Standalone Python service bridging SharkNinja robot vacuums to Home Assistant via MQTT autodiscovery. Auth → cloud API → MQTT.
