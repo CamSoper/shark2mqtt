@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     # from the Shark app, so this lets those users try 0.
     pause_operating_mode: int = Field(default=1, ge=0, le=1)
 
+    # When false, never launch the automated Chromium login. An expired or
+    # missing token then fails with a clear "log in again" error instead,
+    # for setups where tokens come from a manual login.
+    browser_login: bool = True
+
     # Token persistence
     token_dir: str = "/data"
 
