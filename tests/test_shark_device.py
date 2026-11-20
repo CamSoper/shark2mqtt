@@ -261,3 +261,78 @@ class TestDiscoveryDedup:
         vac.rooms = ["Kitchen"]
         await client.publish_discovery(vac)
         assert client._publish.call_count > first_count
+
+
+def make_tank_vacuum(dock_sensor_data: object = None) -> SharkVacuum:
+    """A robot on a mop-washing base, whose shadow carries DockSensorData."""
+    data = make_skegox_device(operating_mode=0)
+    reported = data["shadow"]["properties"]["reported"]
+    reported["Flow_Mode"] = {"value": 0}
+    if dock_sensor_data is not None:
+        reported["DockSensorData"] = {"value": dock_sensor_data}
+    return SharkVacuum.from_skegox(data)
+
+
+TANKS_OK = '{"CleanTank":{"Install":0,"Empty":0},"GreyTank":{"Install":0,"Full":0}}'
+CLEAN_EMPTY = '{"CleanTank":{"Install":0,"Empty":1},"GreyTank":{"Install":0,"Full":0}}'
+DIRTY_FULL = '{"CleanTank":{"Install":0,"Empty":0},"GreyTank":{"Install":0,"Full":1}}'
+
+
+class TestDockWaterTanks:
+    """Bases with clean/dirty water tanks report them in DockSensorData."""
+
+    def test_tanks_ok(self):
+        vac = make_tank_vacuum(TANKS_OK)
+        assert vac.has_dock_tanks is True
+        assert vac.clean_tank_empty is False
+        assert vac.dirty_tank_full is False
+
+    def test_clean_tank_empty(self):
+        assert make_tank_vacuum(CLEAN_EMPTY).clean_tank_empty is True
+
+    def test_dirty_tank_full(self):
+        assert make_tank_vacuum(DIRTY_FULL).dirty_tank_full is True
+
+    def test_dict_value_is_accepted(self):
+        vac = make_tank_vacuum({"CleanTank": {"Install": 0, "Empty": 1}})
+        assert vac.clean_tank_empty is True
+        assert vac.dirty_tank_full is None
+
+    def test_absent_or_empty_is_not_a_capability(self):
+        assert make_vacuum().has_dock_tanks is False
+        assert make_tank_vacuum("").has_dock_tanks is False
+
+    def test_unparseable_reads_as_no_data(self):
+        vac = make_tank_vacuum("{not json")
+        assert vac.has_dock_tanks is False
+        assert vac.clean_tank_empty is None
+
+    def test_attributes_only_for_tank_bases(self):
+        attrs = make_tank_vacuum(CLEAN_EMPTY).to_attributes_payload()
+        assert attrs["clean_tank_empty"] is True
+        assert attrs["dirty_tank_full"] is False
+        assert "clean_tank_empty" not in make_vacuum().to_attributes_payload()
+
+    @pytest.mark.asyncio
+    async def test_discovery_publishes_tank_sensors(self, mock_config):
+        client = MqttClient(mock_config)
+        client._publish = AsyncMock()
+        await client.publish_discovery(make_tank_vacuum(TANKS_OK))
+        configs = {
+            c.args[0]: c.args[1] for c in client._publish.call_args_list
+            if c.args[0].endswith(("_clean_tank_empty/config", "_dirty_tank_full/config"))
+        }
+        assert len(configs) == 2
+        assert all(isinstance(payload, dict) and payload["device_class"] == "problem" for payload in configs.values())
+
+    @pytest.mark.asyncio
+    async def test_discovery_retracts_tank_sensors_without_tanks(self, mock_config):
+        client = MqttClient(mock_config)
+        client._publish = AsyncMock()
+        await client.publish_discovery(make_vacuum())
+        tanks = [
+            c for c in client._publish.call_args_list
+            if c.args[0].endswith(("_clean_tank_empty/config", "_dirty_tank_full/config"))
+        ]
+        assert len(tanks) == 2
+        assert all(c.args[1] == "" and c.kwargs["retain"] is True for c in tanks)

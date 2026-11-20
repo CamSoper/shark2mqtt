@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -15,6 +16,7 @@ from .const import (
     PROP_GET_CHARGING_STATUS,
     PROP_GET_DEVICE_MODEL_NUMBER,
     PROP_GET_DOCK_ERROR_CODE,
+    PROP_GET_DOCK_SENSOR_DATA,
     PROP_GET_DOCK_KNOB_STATUS,
     PROP_GET_DOCKED_STATUS,
     PROP_GET_ERROR_CODE,
@@ -321,6 +323,49 @@ class SharkVacuum:
         return PROP_GET_FLOW_MODE in self._properties
 
     @property
+    def dock_sensor_data(self) -> dict[str, Any]:
+        """The base's water tank sensors, parsed from DockSensorData.
+
+        The property is a JSON string on the models seen so far; a dict is
+        accepted too. Anything unparseable reads as no data.
+        """
+        raw = self._get_prop(PROP_GET_DOCK_SENSOR_DATA)
+        if isinstance(raw, dict):
+            return raw
+        if not isinstance(raw, str) or not raw.strip():
+            return {}
+        try:
+            parsed = json.loads(raw)
+        except ValueError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+
+    @property
+    def has_dock_tanks(self) -> bool:
+        """Whether this robot's base reports clean/dirty water tanks."""
+        data = self.dock_sensor_data
+        return isinstance(data.get("CleanTank"), dict) or isinstance(data.get("GreyTank"), dict)
+
+    def _tank_flag(self, tank: str, flag: str) -> bool | None:
+        value = self.dock_sensor_data.get(tank)
+        if not isinstance(value, dict) or flag not in value:
+            return None
+        try:
+            return int(value[flag]) != 0
+        except (TypeError, ValueError):
+            return None
+
+    @property
+    def clean_tank_empty(self) -> bool | None:
+        """Clean water tank empty (or removed); None if not reported."""
+        return self._tank_flag("CleanTank", "Empty")
+
+    @property
+    def dirty_tank_full(self) -> bool | None:
+        """Dirty (grey) water tank full (or removed); None if not reported."""
+        return self._tank_flag("GreyTank", "Full")
+
+    @property
     def rssi(self) -> int:
         # Some models report RSSI as positive, others as negative dBm.
         # Real WiFi RSSI is always ≤ 0 dBm, so normalize to negative.
@@ -421,6 +466,11 @@ class SharkVacuum:
         # for them would be inventing a setting the hardware doesn't have.
         if self.has_flow_mode:
             attrs["water_flow"] = self.water_flow
+        # Only bases with water tanks report these, so vac-only and
+        # self-empty-only models don't get sensors their hardware can't fill.
+        if self.has_dock_tanks:
+            attrs["clean_tank_empty"] = self.clean_tank_empty
+            attrs["dirty_tank_full"] = self.dirty_tank_full
         if self.rooms:
             attrs["rooms"] = self.rooms
             attrs["floor_id"] = self.floor_id
