@@ -23,6 +23,8 @@ def mock_config():
     config.poll_interval_active = 1
     config.mqtt_prefix = "shark2mqtt"
     config.ayla_merge = False
+    config.mop_robots = ""
+    config.no_mop_robots = ""
     return config
 
 

@@ -42,6 +42,12 @@ class Settings(BaseSettings):
     # (half-migrated accounts, issue #46). Off by default.
     ayla_merge: bool = False
 
+    # Mop capability overrides, comma-separated robot names or DSNs
+    # (case-insensitive). Auto-detection reads shadow fields that some
+    # vacuum-only models report too, so these force it either way.
+    mop_robots: str = ""
+    no_mop_robots: str = ""
+
     # Operation modes
     auth_once: bool = False
     offline: bool = False

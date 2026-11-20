@@ -182,6 +182,25 @@ def _ayla_only_devices(
     return kept
 
 
+def _robot_set(value: str) -> set[str]:
+    return {v.strip().lower() for v in value.split(",") if v.strip()}
+
+
+def _apply_mop_settings(
+    device: SharkVacuum, config: Settings, wet_dry_seen: set[str],
+) -> None:
+    """Apply MOP_ROBOTS / NO_MOP_ROBOTS and the per-session wet/dry latch."""
+    keys = {device.product_name.lower(), device.dsn.lower()}
+    if keys & _robot_set(config.no_mop_robots):
+        device.mop_override = False
+    elif keys & _robot_set(config.mop_robots):
+        device.mop_override = True
+    if device.dsn in wet_dry_seen:
+        device.wet_dry_seen = True
+    elif device.mop_override is None and device.has_wet_dry:
+        wet_dry_seen.add(device.dsn)
+
+
 async def poll_loop(
     api: SkegoxApi,
     ayla_api: AylaApi,
@@ -202,6 +221,8 @@ async def poll_loop(
     skegox_mard_cache: dict[str, MardData] = {}
     # MARD file last rendered per device, so the plan is drawn once per file.
     rendered_maps: dict[str, bytes] = {}
+    # Robots that have reported a real CleaningParameters value this session.
+    wet_dry_seen: set[str] = set()
 
     while True:
         any_active = False
@@ -213,6 +234,7 @@ async def poll_loop(
             raw_devices = await api.get_all_devices()
             for raw in raw_devices:
                 device = SharkVacuum.from_skegox(raw)
+                _apply_mop_settings(device, config, wet_dry_seen)
 
                 # Room source priority (issue #4):
                 # 1. Skegox MARD — authoritative for migrated devices,
@@ -310,6 +332,7 @@ async def poll_loop(
                             len(ayla_devices), ayla_names or "(none)",
                         )
                     for device in ayla_devices:
+                        _apply_mop_settings(device, config, wet_dry_seen)
                         devices_map[device.dsn] = device
                         await mqtt.publish_discovery(device)
                         await mqtt.publish_state(device, prev_error=prev_errors)
