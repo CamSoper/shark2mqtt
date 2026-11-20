@@ -73,6 +73,7 @@ volumes:
 | `MQTT_PREFIX` | No | `shark2mqtt` | MQTT topic prefix |
 | `POLL_INTERVAL` | No | `300` | Polling interval in seconds |
 | `POLL_INTERVAL_ACTIVE` | No | `20` | Polling interval while cleaning |
+| `PAUSE_OPERATING_MODE` | No | `1` | `Operating_Mode` value sent for pause: `1` or `0`. Some models ignore `1`; `0` is also "stop" on many models, so test it first |
 | `TOKEN_DIR` | No | `/data` | Directory for persisted auth tokens |
 | `LOG_LEVEL` | No | `INFO` | `DEBUG`, `INFO`, `WARNING`, or `ERROR` |
 | `NO_MOP_ROBOTS` | No | | Comma-separated robot names or DSNs that have **no** mop. Hides water flow and Wet/Dry/Deep even if auto-detection thinks otherwise |
