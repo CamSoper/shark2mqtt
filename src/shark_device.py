@@ -24,11 +24,14 @@ from .const import (
     PROP_GET_EVACUATE,
     PROP_GET_EVACUATE_RESUME_STATUS,
     PROP_GET_EVACUATING,
+    PROP_GET_AREAS_TO_CLEAN_V3,
     PROP_GET_EXTENDED_ERROR_CODE,
     PROP_GET_FLOW_MODE,
     PROP_GET_MOP_PLATE_ATTACHED,
     PROP_GET_OPERATING_MODE,
+    PROP_GET_OPERATING_MODE_EX,
     PROP_GET_POWER_MODE,
+    PROP_GET_RECHARGING_TO_RESUME,
     PROP_GET_RECOMMEND_RANDR,
     PROP_GET_REPLACE_BATTERY,
     PROP_GET_ROBOT_FIRMWARE_VERSION,
@@ -39,6 +42,12 @@ from .const import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Operating_Mode_Ex sys_st values used for state (observed on UR2850ZEUS).
+SYS_ST_PAUSED = 4
+SYS_ST_RETURNING = 7
+SYS_ST_DOCKED = 13
+SYS_ST_DOCK_ACTIVITY = 32
 
 
 class SharkVacuum:
@@ -269,6 +278,11 @@ class SharkVacuum:
         if self.error_code != 0:
             return "error"
 
+        if self.uses_job_state:
+            job_state = self._job_aware_state()
+            if job_state is not None:
+                return job_state
+
         mode = self.operating_mode
         if mode is None:
             return "idle"
@@ -278,6 +292,39 @@ class SharkVacuum:
             return "docked"
 
         return OPERATING_MODE_TO_HA_STATE.get(mode, "idle")
+
+    def _job_aware_state(self) -> str | None:
+        """State from sys_st + the job, for models that report both.
+
+        Ignores DockedStatus, Charging_Status and Operating_Mode, which go
+        stale on these models (e.g. "docked" for a whole scheduled run, or
+        not docked while sitting on the dock). Returns None to fall back to
+        the Operating_Mode mapping for combinations not covered here.
+        """
+        sys_st = self.sys_st
+        if self.job_active:
+            if sys_st == SYS_ST_PAUSED:
+                return "paused"
+            if sys_st == SYS_ST_RETURNING:
+                return "returning"
+            # Back on the dock mid-job (e.g. recharging to resume). The job
+            # still counts as active for polling.
+            if sys_st == SYS_ST_DOCKED or self._get_prop(PROP_GET_RECHARGING_TO_RESUME) is True:
+                return "docked"
+            # Back on the dock to empty the bin mid-job: dock activity while
+            # Evacuating. Without Evacuating, 32 has also been seen while the
+            # robot was out cleaning (stale scheduled run), so that stays
+            # "cleaning".
+            if sys_st == SYS_ST_DOCK_ACTIVITY and self.is_evacuating:
+                return "docked"
+            # Cleaning, and other dock activity (filling, washing) during a
+            # job, which HA has no state for.
+            return "cleaning"
+        if sys_st == SYS_ST_RETURNING:
+            return "returning"
+        if sys_st in (SYS_ST_DOCKED, SYS_ST_DOCK_ACTIVITY):
+            return "docked"
+        return None
 
     @property
     def battery_level(self) -> int:
@@ -469,6 +516,74 @@ class SharkVacuum:
     def recommend_rest_and_recharge(self) -> bool:
         return self._get_int_prop(PROP_GET_RECOMMEND_RANDR) == 1
 
+    # --- Job state (models reporting Operating_Mode_Ex / AreasToClean_V3) ---
+
+    def _get_json_dict_prop(self, name: str) -> dict[str, Any] | None:
+        """Return a property holding a JSON object as a dict, else None."""
+        val = self._get_prop(name)
+        if isinstance(val, dict):
+            return val
+        if isinstance(val, str):
+            try:
+                parsed = json.loads(val)
+            except ValueError:
+                return None
+            if isinstance(parsed, dict):
+                return parsed
+        return None
+
+    @property
+    def sys_st(self) -> int | None:
+        """The robot's system state code from Operating_Mode_Ex, if reported.
+
+        Observed on UR2850ZEUS: 4 paused, 5 stopped by error, 6 cleaning,
+        7 returning, 13 docked, 32 dock activity (filling, washing).
+        """
+        ex = self._get_json_dict_prop(PROP_GET_OPERATING_MODE_EX)
+        if ex is None:
+            return None
+        val = ex.get("sys_st")
+        if isinstance(val, bool) or not isinstance(val, int):
+            return None
+        return val
+
+    @property
+    def _job(self) -> dict[str, Any] | None:
+        val = self._get_prop(PROP_GET_AREAS_TO_CLEAN_V3)
+        if val == "*":
+            return {}
+        return self._get_json_dict_prop(PROP_GET_AREAS_TO_CLEAN_V3)
+
+    @property
+    def job_active(self) -> bool | None:
+        """Whether a clean job is assigned, from AreasToClean_V3.
+
+        The job stays set while paused and resets to "*" when it ends,
+        which makes it the most reliable "running" signal on models that
+        report it. None when the field is absent or unreadable.
+        """
+        job = self._job
+        if job is None:
+            return None
+        return bool(job)
+
+    @property
+    def job_clean_type(self) -> str | None:
+        job = self._job
+        val = job.get("cleantype") if job else None
+        return val if isinstance(val, str) else None
+
+    @property
+    def job_trigger(self) -> str | None:
+        job = self._job
+        val = job.get("trigger") if job else None
+        return val if isinstance(val, str) else None
+
+    @property
+    def uses_job_state(self) -> bool:
+        """True when both job fields are readable, enabling job-aware state."""
+        return self.sys_st is not None and self.job_active is not None
+
     @property
     def schedule(self) -> dict[str, Any] | None:
         val = self._get_prop(PROP_GET_SCHEDULE)
@@ -521,6 +636,16 @@ class SharkVacuum:
             attrs["floor_id"] = self.floor_id
         if self.schedule:
             attrs["schedule"] = self.schedule
+        # Only on models that report these fields, so other models' attribute
+        # sets stay exactly as they were.
+        sys_st = self.sys_st
+        if sys_st is not None:
+            attrs["sys_st"] = sys_st
+        job_active = self.job_active
+        if job_active is not None:
+            attrs["job_active"] = job_active
+            attrs["job_clean_type"] = self.job_clean_type
+            attrs["job_trigger"] = self.job_trigger
         return attrs
 
     @property

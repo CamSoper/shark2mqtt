@@ -28,6 +28,16 @@ class Settings(BaseSettings):
     poll_interval: int = 300
     poll_interval_active: int = 20
 
+    # Operating_Mode value sent for HA's pause command. 1 (PAUSE) is what
+    # most models expect. Some models ignore 1 and report 0 while paused
+    # from the Shark app, so this lets those users try 0.
+    pause_operating_mode: int = Field(default=1, ge=0, le=1)
+
+    # When false, never launch the automated Chromium login. An expired or
+    # missing token then fails with a clear "log in again" error instead,
+    # for setups where tokens come from a manual login.
+    browser_login: bool = True
+
     # Token persistence
     token_dir: str = "/data"
 

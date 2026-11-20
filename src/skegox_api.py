@@ -297,7 +297,7 @@ class SkegoxApi:
         command_map = {
             "start": ("Operating_Mode", 2),
             "stop": ("Operating_Mode", 0),
-            "pause": ("Operating_Mode", 1),
+            "pause": ("Operating_Mode", self._config.pause_operating_mode),
             "return_to_base": ("Operating_Mode", 3),
             "locate": ("Find_Device", 1),
             "mop": ("Operating_Mode", 7),

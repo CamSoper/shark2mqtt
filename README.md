@@ -73,6 +73,8 @@ volumes:
 | `MQTT_PREFIX` | No | `shark2mqtt` | MQTT topic prefix |
 | `POLL_INTERVAL` | No | `300` | Polling interval in seconds |
 | `POLL_INTERVAL_ACTIVE` | No | `20` | Polling interval while cleaning |
+| `PAUSE_OPERATING_MODE` | No | `1` | `Operating_Mode` value sent for pause: `1` or `0`. Some models ignore `1`; `0` is also "stop" on many models, so test it first |
+| `BROWSER_LOGIN` | No | `true` | Set `false` to never launch the automated browser login. A missing or expired token then logs a "Shark login needed" error instead (see [Authentication](#authentication)) |
 | `TOKEN_DIR` | No | `/data` | Directory for persisted auth tokens |
 | `LOG_LEVEL` | No | `INFO` | `DEBUG`, `INFO`, `WARNING`, or `ERROR` |
 | `NO_MOP_ROBOTS` | No | | Comma-separated robot names or DSNs that have **no** mop. Hides water flow and Wet/Dry/Deep even if auto-detection thinks otherwise |
@@ -152,6 +154,8 @@ Cloudflare's bot detection occasionally flags the automated browser on some host
 
 3. Start the service normally. It will use the saved refresh token and skip the browser flow entirely.
 
+If you always supply tokens this way, set `BROWSER_LOGIN=false` so the service never tries the automated login itself. When the token stops working it logs "Shark login needed" instead. Copy in a fresh `shark2mqtt_tokens.json` and restart.
+
 The refresh token is long-lived, so once you have a working `shark2mqtt_tokens.json` the browser flow shouldn't be needed again unless SharkNinja revokes the session (e.g. after a password change).
 
 Repeated failed attempts can temporarily lock your SharkNinja account, so if the challenge is failing, stop the retry loop (set restart policy to `no` or use `--auth-once`) before trying again.
@@ -197,10 +201,14 @@ Each vacuum is automatically discovered by Home Assistant with the following ent
 | `binary_sensor.<name>_clean_tank_empty` | Binary Sensor | Base's clean water tank empty or removed (mop-washing bases only) |
 | `binary_sensor.<name>_dirty_tank_full` | Binary Sensor | Base's dirty water tank full or removed (mop-washing bases only) |
 | `image.<name>_floor_plan` | Image | Floor plan: room outlines with names and areas |
+| `sensor.<name>_sys_st` | Sensor | Diagnostic: the robot's `sys_st` system status code (models that report `Operating_Mode_Ex` only) |
+| `binary_sensor.<name>_job_active` | Binary Sensor | Diagnostic: on while a clean job exists, including while paused (models that report `AreasToClean_V3` only) |
 
 Room buttons and the clean mode select appear automatically when room data is available from the Shark cloud. The water flow select appears on models that report `MopPlateAttached`, and the Wet/Dry clean mode plus Deep button on models that report a real `CleaningParameters` value. That's auto-detection from shadow fields, and it isn't perfect: some vacuum-only models (a UR2360EEUS, for one) carry mop fields too. If a robot gets mop controls it can't use, or misses ones it should have, list it in `NO_MOP_ROBOTS` or `MOP_ROBOTS`.
 
 The tank sensors appear only on robots whose shadow reports `DockSensorData` (bases that wash the mop and refill the robot). The base only updates them while the robot is docked, so expect a change to show up at the next poll after the robot returns.
+
+On robots that report both `Operating_Mode_Ex` (with `sys_st`) and `AreasToClean_V3`, such as the UR2850ZEUS, the vacuum state comes from `sys_st` and the current job rather than `DockedStatus`, `Charging_Status` and `Operating_Mode`, which can lag or go stale on those models. Fast polling also stays on while a job exists. Other models keep the existing state logic.
 
 An error device trigger fires when a new error is detected, usable in HA automations.
 
